@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UOL Secondary ERP</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#f3f7f5; --card:#fff; --ink:#14221c; --muted:#5b6b64; --line:#dbe6e0;
+  --green:#15803d; --green-soft:#e3f5e9; --blue:#0369a1; --blue-soft:#e0f2fe;
+  --amber:#b45309; --amber-soft:#fef3c7; --red:#b91c1c; --red-soft:#fee2e2; --purple:#6d3fa8;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.topbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:10px 18px;background:var(--card);border-bottom:3px solid #14b8a6}
+.brand{display:flex;gap:10px;align-items:center}
+.logo{background:var(--green);color:#fff;font-weight:700;border-radius:10px;padding:8px 10px;letter-spacing:.5px}
+.brand b{display:block;font-size:15px}.brand small{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.chip{border-radius:999px;padding:7px 14px;font-weight:600;font-size:13px;border:1px solid}
+.chip.db{background:var(--blue-soft);color:var(--blue);border-color:#bae6fd}
+.chip.clock{background:var(--green-soft);color:#166534;border-color:#bbe5c8;font-family:ui-monospace,Menlo,Consolas,monospace}
+.loginas{display:flex;align-items:center;gap:10px;background:var(--green-soft);border:1px solid #bbe5c8;border-radius:999px;padding:6px 8px 6px 14px}
+.loginas span{font-weight:700;color:#166534;font-size:12px;letter-spacing:.4px}
+.loginas select{border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:14px;background:#fff;min-width:230px}
+nav{display:flex;flex-wrap:wrap;gap:6px;padding:12px 18px 0}
+nav button{border:1px solid var(--line);background:#fff;border-radius:10px 10px 0 0;padding:9px 16px;font-weight:600;color:var(--muted);cursor:pointer}
+nav button.on{background:var(--green);color:#fff;border-color:var(--green)}
+main{padding:16px 18px 40px;max-width:1280px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
+.card h2{margin:0 0 4px;font-size:17px}.card h3{margin:0 0 10px;font-size:15px}
+.sub{color:var(--muted);margin:0 0 12px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.tile small{color:var(--muted);display:block}.tile b{font-size:24px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px}
+select,input[type=text],input[type=date],input[type=number],input[type=file]{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;background:#fff;min-width:200px}
+button.btn{background:var(--green);color:#fff;border:0;border-radius:8px;padding:10px 16px;font-weight:600;cursor:pointer}
+button.btn.alt{background:#fff;color:var(--green);border:1px solid var(--green)}
+button.btn:disabled{opacity:.5;cursor:not-allowed}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:#f0f6f3;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.total td{font-weight:700;background:#f7faf8}
+.badge{display:inline-block;border-radius:999px;padding:2px 10px;font-weight:700;font-size:12px}
+.b-give{background:var(--green-soft);color:#166534}.b-partial{background:var(--amber-soft);color:var(--amber)}
+.b-do_not_give{background:var(--red-soft);color:var(--red)}.b-decided{background:var(--blue-soft);color:var(--blue)}.b-received{background:var(--green-soft);color:#166534}
+.note{border-radius:10px;padding:10px 12px;margin:10px 0}
+.note.info{background:var(--blue-soft);color:#075985}.note.warn{background:var(--amber-soft);color:#78350f}
+.note.err{background:var(--red-soft);color:#7f1d1d}.note.ok{background:var(--green-soft);color:#14532d}
+.muted{color:var(--muted)}
+#toast{position:fixed;right:16px;bottom:16px;max-width:380px;padding:12px 16px;border-radius:10px;color:#fff;display:none;z-index:9}
+#toast.show{display:block}#toast.ok{background:#166534}#toast.err{background:#991b1b}
+.recv input[type=number]{min-width:0;width:90px;text-align:right}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">UOL</span><div><b>Ultimate Organic Life Ltd</b><small>Secondary ERP · Inventory &amp; Indent</small></div></div>
+  <div class="chips">
+    <span class="chip db">Database: Supabase</span>
+    <span class="chip clock" id="clock"></span>
+    <div class="loginas"><span>👤 LOGIN AS</span><select id="loginAs"></select></div>
+  </div>
+</header>
+<nav id="tabs"></nav>
+<main id="view"></main>
+<div id="toast"></div>
+
+<script>
+// =============== CONFIGURATION (paste your Supabase values) ===============
+const SUPABASE_URL = 'https://bleepjryfxviahkizbdr.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_7FSfaNslEMTAsalAKKQbNA_o6ZaD8_0';
+// ==========================================================================
+
+const REAL_LOGIN = false;   // true = email/password login; false = old 'Login As' demo mode
+
+const CENTRAL = ['super_admin','admin','sub_admin','warehouse_manager','inventory_manager'];
+const ROLES = [
+  ['super_admin','Super Admin'],['admin','Admin'],['sub_admin','Sub Admin'],
+  ['warehouse_manager','Warehouse Manager'],['inventory_manager','Inventory Manager']
+];
+const TZ = 'Asia/Dhaka';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => Number(n || 0).toLocaleString('en-US', {maximumFractionDigits: 2});
+const norm = s => String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+const num = v => { const n = Number(String(v).replace(/,/g, '').trim()); return Number.isFinite(n) ? n : NaN; };
+const today = () => new Date().toLocaleDateString('en-CA', {timeZone: TZ});
+const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+
+let db, allLocations = [], locations = [], products = [];
+let session = {role: 'super_admin', locationId: null};
+let currentTab = 'dashboard';
+
+const isCentral = () => CENTRAL.includes(session.role);
+const locName = id => (locations.find(l => l.id === id) || allLocations.find(l => l.id === id) || {}).name || '—';
+
+let realClient = null;
+function makeClient(role, locationId) {
+  if (REAL_LOGIN) {
+    if (!realClient) realClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {auth: {persistSession: true, autoRefreshToken: true}});
+    return realClient;
+  }
+  return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {persistSession: false, autoRefreshToken: false},
+    global: {headers: {'x-demo-role': role, 'x-demo-location': locationId || ''}}
+  });
+}
+async function fetchAll(build) {
+  let out = [], from = 0; const step = 1000;
+  for (;;) {
+    const {data, error} = await build(from, from + step - 1);
+    if (error) throw error;
+    out = out.concat(data);
+    if (data.length < step) break;
+    from += step;
+  }
+  return out;
+}
+function toast(msg, type = 'ok') {
+  const t = $('#toast'); t.textContent = msg; t.className = 'show ' + type;
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.className = '', 6000);
+}
+const note = (el, html, type = 'info') => { el.innerHTML = html ? `<div class="note ${type}">${html}</div>` : ''; };
+const loading = '<div class="card muted">Loading…</div>';
+
+// ---------- spreadsheet helpers ----------
+async function readSheet(file) {
+  const wb = XLSX.read(await file.arrayBuffer(), {type: 'array', cellDates: true});
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval: '', raw: false, dateNF: 'yyyy-mm-dd'});
+}
+function pick(row, ...names) {
+  const k = Object.keys(row).find(k => names.some(n => norm(n) === norm(k)));
+  return k === undefined ? '' : row[k];
+}
+function downloadSheet(filename, aoa) {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Sheet1');
+  XLSX.writeFile(wb, filename);
+}
+const productMap = () => { const m = new Map(); products.forEach(p => m.set(norm(p.name), p)); return m; };
+
+// Reads rows with a product name + quantity. Returns matched items and any problems found.
+function matchRows(rows, qtyNames) {
+  const map = productMap(), items = [], errors = [], unmatched = new Set();
+  rows.forEach((r, i) => {
+    const name = String(pick(r, 'Product Name', 'Product')).trim();
+    const rawQty = pick(r, ...qtyNames);
+    if (!name && String(rawQty).trim() === '') return;
+    const rowNo = i + 2;
+    if (!name) { errors.push(`Row ${rowNo}: product name is missing.`); return; }
+    const qty = num(rawQty);
+    if (!Number.isFinite(qty) || qty < 0) { errors.push(`Row ${rowNo}: "${name}" has an invalid quantity.`); return; }
+    const p = map.get(norm(name));
+    if (!p) { unmatched.add(name); return; }
+    items.push({product: p, qty, row: r, rowNo});
+  });
+  return {items, errors, unmatched: [...unmatched]};
+}
+function problemHtml(res) {
+  let h = '';
+  if (res.unmatched.length) h += `<b>Products not found in the product master (${res.unmatched.length}):</b><br>${res.unmatched.map(esc).join('<br>')}<br>`;
+  if (res.errors.length) h += `<b>Row errors:</b><br>${res.errors.slice(0, 15).map(esc).join('<br>')}${res.errors.length > 15 ? '<br>…' : ''}`;
+  return h;
+}
+
+// ---------- boot ----------
+async function boot() {
+  setInterval(tick, 1000); tick();
+  if (SUPABASE_URL.startsWith('PASTE') || SUPABASE_ANON_KEY.startsWith('PASTE')) {
+    $('#view').innerHTML = `<div class="card"><h2>Setup required</h2><p>Open <b>index.html</b>, and replace <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> near the top with the values from Supabase → Project Settings → API.</p></div>`;
+    return;
+  }
+  if (REAL_LOGIN) { db = makeClient(); $('.loginas').style.display = 'none'; return realStart(); }
+  try {
+    db = makeClient('super_admin', null);
+    const {data, error} = await db.from('locations').select('*').eq('is_active', true).order('type').order('name');
+    if (error) throw error;
+    if (!data.length) throw new Error('No locations found. Run uol_step1b_demo_login_and_seed.sql first.');
+    allLocations = data;
+  } catch (e) {
+    $('#view').innerHTML = `<div class="card"><h2>Cannot connect to the database</h2><div class="note err">${esc(e.message)}</div><p class="muted">Check the URL and key, and make sure both SQL files were run in order.</p></div>`;
+    return;
+  }
+  buildLoginAs();
+  await applySession();
+}
+async function realStart() {
+  const {data} = await db.auth.getSession();
+  if (!data.session) return renderLogin();
+  const pr = await db.from('profiles').select('full_name,role,location_id,is_active').eq('id', data.session.user.id).maybeSingle();
+  if (pr.error || !pr.data || !pr.data.is_active) {
+    $('#view').innerHTML = `<div class="card"><h2>No access</h2><div class="note err">This account has no active profile. Ask the Super Admin to set up your role.</div><button class="btn" id="so">Sign out</button></div>`;
+    $('#so').onclick = signOut; return;
+  }
+  session = {role: pr.data.role, locationId: pr.data.location_id, name: pr.data.full_name};
+  const l = await db.from('locations').select('*').eq('is_active', true).order('type').order('name');
+  if (l.error) { toast(l.error.message, 'err'); return; }
+  locations = allLocations = l.data;
+  const p = await db.from('products').select('*').order('name');
+  if (p.error) { toast(p.error.message, 'err'); return; }
+  products = p.data;
+  if (!$('#whoami')) $('.chips').insertAdjacentHTML('beforeend', `<span class="chip db" id="whoami">${esc(session.name)} · ${esc(session.role.replace(/_/g, ' '))}</span><button class="btn alt" id="soBtn">Sign out</button>`);
+  $('#soBtn').onclick = signOut;
+  buildTabs();
+  const visible = TABS.filter(t => t.central ? isCentral() : true);
+  if (!visible.some(t => t.id === currentTab)) currentTab = 'dashboard';
+  showTab(currentTab);
+}
+async function signOut() { await db.auth.signOut(); location.reload(); }
+function renderLogin() {
+  $('#tabs').innerHTML = '';
+  $('#view').innerHTML = `<div class="card" style="max-width:380px;margin:40px auto"><h2>Sign in</h2><p class="sub">Use the email and password given by your admin.</p>
+    <label>Email</label><input type="text" id="lgE" style="width:100%"><label style="margin-top:10px">Password</label><input type="password" id="lgP" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px">
+    <div id="lgM" style="margin-top:10px"></div><button class="btn" id="lgGo" style="margin-top:10px">Sign in</button></div>`;
+  const go = async () => {
+    const r = await db.auth.signInWithPassword({email: $('#lgE').value.trim(), password: $('#lgP').value});
+    if (r.error) return note($('#lgM'), esc(r.error.message), 'err');
+    realStart();
+  };
+  $('#lgGo').onclick = go; $('#lgP').onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+function tick() {
+  const d = new Date();
+  const t = d.toLocaleTimeString('en-US', {timeZone: TZ, hour: 'numeric', minute: '2-digit', second: '2-digit'}).toLowerCase();
+  const dt = d.toLocaleDateString('en-GB', {timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'});
+  $('#clock').textContent = `🕘 ${t} · ${dt} • Dhaka`;
+}
+function buildLoginAs() {
+  const sel = $('#loginAs');
+  const sps = allLocations.filter(l => l.type === 'sales_point');
+  sel.innerHTML =
+    `<optgroup label="Central Team">${ROLES.map(([v, l]) => `<option value="${v}|">${l}</option>`).join('')}</optgroup>` +
+    `<optgroup label="Sales Point Users">${sps.map(l => `<option value="sales_point_user|${l.id}">Sales Point – ${esc(l.name)}</option>`).join('')}</optgroup>`;
+  const saved = localStorage.getItem('uol_login_as');
+  if (saved && [...sel.options].some(o => o.value === saved)) sel.value = saved;
+  sel.onchange = () => { localStorage.setItem('uol_login_as', sel.value); applySession(); };
+}
+async function applySession() {
+  const [role, loc] = $('#loginAs').value.split('|');
+  session = {role, locationId: loc || null};
+  db = makeClient(role, session.locationId);
+  try {
+    const l = await db.from('locations').select('*').eq('is_active', true).order('type').order('name');
+    if (l.error) throw l.error; locations = l.data;
+    const p = await db.from('products').select('*').order('name');
+    if (p.error) throw p.error; products = p.data;
+  } catch (e) { toast(e.message, 'err'); return; }
+  buildTabs();
+  const visible = TABS.filter(t => t.central ? isCentral() : true);
+  if (!visible.some(t => t.id === currentTab)) currentTab = 'dashboard';
+  showTab(currentTab);
+}
+
+const TABS = [
+  {id: 'dashboard', label: 'Dashboard', render: renderDashboard},
+  {id: 'stock', label: 'Live Stock', render: renderStock},
+  {id: 'indent', label: 'Indent Management', central: true, render: renderIndent},
+  {id: 'opening', label: 'Opening Stock', central: true, render: renderOpening},
+  {id: 'sales', label: 'Daily Sales', render: renderSales},
+  {id: 'products', label: 'Products', central: true, render: renderProducts}
+];
+function buildTabs() {
+  $('#tabs').innerHTML = TABS.filter(t => t.central ? isCentral() : true)
+    .map(t => `<button data-t="${t.id}">${t.label}</button>`).join('');
+  $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
+}
+async function showTab(id) {
+  currentTab = id;
+  $('#tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === id));
+  const v = $('#view'); v.innerHTML = loading;
+  try { await TABS.find(t => t.id === id).render(v); }
+  catch (e) { v.innerHTML = `<div class="card"><div class="note err">${esc(e.message || e)}</div></div>`; }
+}
+
+// ---------- data helpers ----------
+const WINDOW_DAYS = 30;
+async function liveStock(locIds) {
+  return fetchAll((a, b) => {
+    let q = db.from('v_live_stock').select('location_id,location_type,product_id,live_qty');
+    if (locIds) q = q.in('location_id', locIds);
+    return q.order('location_id').order('product_id').range(a, b);
+  });
+}
+async function salesSince(since, locId) {
+  return fetchAll((a, b) => {
+    let q = db.from('daily_sales').select('location_id,product_id,qty,sale_date').gte('sale_date', since);
+    if (locId) q = q.eq('location_id', locId);
+    return q.order('id').range(a, b);
+  });
+}
+const sumBy = (arr, key, val) => { const m = new Map(); arr.forEach(r => m.set(r[key], (m.get(r[key]) || 0) + Number(r[val])));  return m; };
+const prodName = id => (products.find(p => p.id === id) || {}).name || '—';
+const cover = (stock, s30) => s30 > 0 ? Math.round(stock / (s30 / WINDOW_DAYS)) : null;
+
+// =============================== DASHBOARD ===============================
+async function renderDashboard(v) {
+  const since = addDays(today(), -(WINDOW_DAYS - 1));
+  const [stock, sales] = await Promise.all([liveStock(), salesSince(since)]);
+  const unitsByLoc = sumBy(stock, 'location_id', 'live_qty');
+  const salesByLoc = sumBy(sales, 'location_id', 'qty');
+  const sps = locations.filter(l => l.type === 'sales_point');
+  const whs = locations.filter(l => l.type === 'warehouse');
+
+  if (!isCentral()) {
+    const loc = sps[0]; if (!loc) { v.innerHTML = '<div class="card">No location assigned.</div>'; return; }
+    const units = unitsByLoc.get(loc.id) || 0, s30 = salesByLoc.get(loc.id) || 0;
+    const sByProd = sumBy(sales, 'product_id', 'qty');
+    const low = stock.filter(r => r.location_id === loc.id && (sByProd.get(r.product_id) || 0) > 0)
+      .map(r => ({name: prodName(r.product_id), live: Number(r.live_qty), c: cover(Number(r.live_qty), sByProd.get(r.product_id))}))
+      .sort((a, b) => a.c - b.c).slice(0, 10);
+    v.innerHTML = `<div class="card"><h2>${esc(loc.name)}</h2><p class="sub">Sales point dashboard — your own stock and sales only.</p></div>
+      <div class="grid">
+        <div class="tile"><small>Live stock (units)</small><b>${fmt(units)}</b></div>
+        <div class="tile"><small>Sales, last ${WINDOW_DAYS} days</small><b>${fmt(s30)}</b></div>
+        <div class="tile"><small>Average daily sales</small><b>${fmt(s30 / WINDOW_DAYS)}</b></div>
+        <div class="tile"><small>Days of cover (overall)</small><b>${cover(units, s30) ?? '—'}</b></div>
+      </div><div class="card" style="margin-top:16px"><h3>Products with the lowest days of cover</h3>
+      <div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Live Stock</th><th class="n">Days of Cover</th></tr></thead><tbody>
+      ${low.map(r => `<tr><td>${esc(r.name)}</td><td class="n">${fmt(r.live)}</td><td class="n">${r.c}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">No sales recorded yet.</td></tr>'}
+      </tbody></table></div></div>`;
+    return;
+  }
+
+  const pending = await db.from('indents').select('id', {count: 'exact', head: true}).eq('status', 'decided');
+  const whUnits = whs.reduce((s, l) => s + (unitsByLoc.get(l.id) || 0), 0);
+  const spUnits = sps.reduce((s, l) => s + (unitsByLoc.get(l.id) || 0), 0);
+  const spSales = sps.reduce((s, l) => s + (salesByLoc.get(l.id) || 0), 0);
+  const prodsIn = id => stock.filter(r => r.location_id === id && Number(r.live_qty) > 0).length;
+  v.innerHTML = `<div class="grid">
+      <div class="tile"><small>Warehouse stock, merged (units)</small><b>${fmt(whUnits)}</b></div>
+      <div class="tile"><small>All sales points stock (units)</small><b>${fmt(spUnits)}</b></div>
+      <div class="tile"><small>All sales points sales, last ${WINDOW_DAYS} days</small><b>${fmt(spSales)}</b></div>
+      <div class="tile"><small>Indents awaiting receipt</small><b>${pending.count ?? 0}</b></div>
+    </div>
+    <div class="card" style="margin-top:16px"><h3>Sales Points — stock vs sales</h3>
+      <div class="tablewrap"><table><thead><tr><th>Sales Point</th><th class="n">Live Stock</th><th class="n">Sales (${WINDOW_DAYS}d)</th><th class="n">Avg Daily Sales</th><th class="n">Days of Cover</th></tr></thead><tbody>
+      ${sps.map(l => { const u = unitsByLoc.get(l.id) || 0, s = salesByLoc.get(l.id) || 0;
+        return `<tr><td>${esc(l.name)}</td><td class="n">${fmt(u)}</td><td class="n">${fmt(s)}</td><td class="n">${fmt(s / WINDOW_DAYS)}</td><td class="n">${cover(u, s) ?? '—'}</td></tr>`; }).join('')}
+      </tbody></table></div></div>
+    <div class="card"><h3>Warehouses</h3>
+      <div class="tablewrap"><table><thead><tr><th>Warehouse</th><th class="n">Live Stock (units)</th><th class="n">Products in stock</th></tr></thead><tbody>
+      ${whs.map(l => `<tr><td>${esc(l.name)}</td><td class="n">${fmt(unitsByLoc.get(l.id) || 0)}</td><td class="n">${prodsIn(l.id)}</td></tr>`).join('')}
+      <tr class="total"><td>Merged total</td><td class="n">${fmt(whUnits)}</td><td></td></tr>
+      </tbody></table></div></div>`;
+}
+
+// ================================ LIVE STOCK ================================
+async function renderStock(v) {
+  const whs = locations.filter(l => l.type === 'warehouse'), sps = locations.filter(l => l.type === 'sales_point');
+  const opts = isCentral()
+    ? `<optgroup label="Warehouses"><option value="WH_ALL">All warehouses (merged)</option>${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</optgroup>
+       <optgroup label="Sales Points">${sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</optgroup>`
+    : sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('');
+  v.innerHTML = `<div class="card"><h2>Live Stock</h2><p class="sub">Live stock = opening stock + received indents − sales.</p>
+    <div class="row"><div><label>Location</label><select id="stLoc">${opts}</select></div>
+    <div><label>Search product</label><input type="text" id="stSearch" placeholder="Type to filter"></div></div></div>
+    <div id="stOut"></div>`;
+  const load = async () => {
+    const sel = $('#stLoc').value, out = $('#stOut'); out.innerHTML = loading;
+    const merged = sel === 'WH_ALL';
+    const ids = merged ? whs.map(l => l.id) : [sel];
+    const loc = locations.find(l => l.id === sel);
+    const isSP = !merged && loc && loc.type === 'sales_point';
+    const stock = await liveStock(ids);
+    const s30 = isSP ? sumBy(await salesSince(addDays(today(), -(WINDOW_DAYS - 1)), sel), 'product_id', 'qty') : new Map();
+    const byProd = new Map(); stock.forEach(r => { const o = byProd.get(r.product_id) || {}; o[r.location_id] = Number(r.live_qty); byProd.set(r.product_id, o); });
+    const rows = products.filter(p => p.is_active).map(p => {
+      const o = byProd.get(p.id) || {}; const total = ids.reduce((s, i) => s + (o[i] || 0), 0);
+      return {p, o, total};
+    });
+    const head = merged ? whs.map(l => `<th class="n">${esc(l.name)}</th>`).join('') + '<th class="n">Total</th>'
+      : '<th class="n">Live Stock</th>' + (isSP ? '<th class="n">Avg Daily Sales</th><th class="n">Days of Cover</th>' : '');
+    const body = rows.map(({p, o, total}) => {
+      const sales = s30.get(p.id) || 0;
+      const cells = merged ? whs.map(l => `<td class="n">${fmt(o[l.id] || 0)}</td>`).join('') + `<td class="n"><b>${fmt(total)}</b></td>`
+        : `<td class="n">${fmt(total)}</td>` + (isSP ? `<td class="n">${fmt(sales / WINDOW_DAYS)}</td><td class="n">${cover(total, sales) ?? '—'}</td>` : '');
+      return `<tr><td>${esc(p.name)}</td>${cells}</tr>`;
+    }).join('');
+    out.innerHTML = `<div class="card"><div class="tablewrap"><table id="stTable"><thead><tr><th>Product</th>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
+    applyFilter();
+  };
+  const applyFilter = () => { const q = norm($('#stSearch').value); document.querySelectorAll('#stTable tbody tr').forEach(tr => tr.style.display = norm(tr.cells[0].textContent).includes(q) ? '' : 'none'); };
+  $('#stLoc').onchange = load; $('#stSearch').oninput = applyFilter;
+  await load();
+}
+
+// ============================= INDENT MANAGEMENT =============================
+async function renderIndent(v) {
+  const sps = locations.filter(l => l.type === 'sales_point'), whs = locations.filter(l => l.type === 'warehouse');
+  v.innerHTML = `<div class="card"><h2>New Indent</h2>
+    <p class="sub">Select the sales point, upload the indent sheet received from Odoo, and the system will recommend the quantity to issue for each product.</p>
+    <div class="row">
+      <div><label>Sales point</label><select id="inLoc">${sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
+      <div><label>Indent date</label><input type="date" id="inDate" value="${today()}"></div>
+      <div><label>Odoo reference (optional)</label><input type="text" id="inRef"></div>
+      <div><label>Indent sheet (.xlsx)</label><input type="file" id="inFile" accept=".xlsx,.xls,.csv"></div>
+      <button class="btn" id="inGo">Analyze Indent</button>
+      <button class="btn alt" id="inTpl">Download Template</button>
+    </div>
+    <div class="note info">Warehouse stock used for the decision is the merged live stock of: <b>${whs.map(l => esc(l.name)).join(', ') || 'no warehouse'}</b>.</div>
+    <div id="inMsg"></div></div>
+    <div id="inResult"></div><div id="inHistory"></div>`;
+  $('#inTpl').onclick = () => downloadSheet('Indent_Template.xlsx', [['Product Name', 'Indent Qty'], [products[0]?.name || 'Product name', 100]]);
+  $('#inGo').onclick = async () => {
+    const msg = $('#inMsg'), btn = $('#inGo'); note(msg, '');
+    try {
+      const f = $('#inFile').files[0]; if (!f) return note(msg, 'Please choose the indent sheet first.', 'warn');
+      const res = matchRows(await readSheet(f), ['Indent Qty', 'Qty', 'Quantity']);
+      if (res.unmatched.length || res.errors.length) return note(msg, problemHtml(res), 'err');
+      if (!res.items.length) return note(msg, 'The sheet contains no indent lines.', 'warn');
+      btn.disabled = true;
+      const {data, error} = await db.rpc('create_indent', {
+        p_location_id: $('#inLoc').value, p_indent_date: $('#inDate').value, p_odoo_ref: $('#inRef').value || null,
+        p_lines: res.items.map(i => ({product_name: i.product.name, qty: i.qty}))
+      });
+      if (error) throw error;
+      toast('Indent analyzed.'); await showIndent(data); await indentHistory();
+    } catch (e) { note(msg, esc(e.message || e), 'err'); }
+    finally { btn.disabled = false; }
+  };
+  await indentHistory();
+}
+async function indentHistory() {
+  const {data, error} = await db.from('indents').select('*').order('created_at', {ascending: false}).limit(20);
+  if (error) throw error;
+  $('#inHistory').innerHTML = `<div class="card"><h3>Recent Indents</h3><div class="tablewrap"><table>
+    <thead><tr><th>Indent No</th><th>Sales Point</th><th>Date</th><th>Odoo Ref</th><th>Status</th><th></th></tr></thead><tbody>
+    ${data.map(i => `<tr><td>${esc(i.indent_no)}</td><td>${esc(locName(i.location_id))}</td><td>${i.indent_date}</td><td>${esc(i.odoo_ref || '')}</td>
+      <td><span class="badge b-${i.status}">${i.status === 'decided' ? 'Awaiting receipt' : 'Received'}</span></td>
+      <td><button class="btn alt" data-id="${i.id}">View</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No indents yet.</td></tr>'}
+    </tbody></table></div></div>`;
+  $('#inHistory').querySelectorAll('button[data-id]').forEach(b => b.onclick = () => { showIndent(b.dataset.id); window.scrollTo({top: 0, behavior: 'smooth'}); });
+}
+async function showIndent(id) {
+  const out = $('#inResult'); out.innerHTML = loading;
+  const [h, l] = await Promise.all([
+    db.from('indents').select('*').eq('id', id).single(),
+    db.from('indent_lines').select('*').eq('indent_id', id)
+  ]);
+  if (h.error) throw h.error; if (l.error) throw l.error;
+  const ind = h.data, lines = l.data.sort((a, b) => prodName(a.product_id).localeCompare(prodName(b.product_id)));
+  const open = ind.status === 'decided';
+  const tot = k => lines.reduce((s, r) => s + Number(r[k]), 0);
+  const cnt = d => lines.filter(r => r.decision === d).length;
+  const whs = locations.filter(x => x.type === 'warehouse');
+  out.innerHTML = `<div class="card"><h2>${esc(ind.indent_no)} — ${esc(locName(ind.location_id))}
+      <span class="badge b-${ind.status}">${open ? 'Awaiting receipt' : 'Received'}</span></h2>
+    <p class="sub">Indent date ${ind.indent_date}${ind.odoo_ref ? ' · Odoo ref ' + esc(ind.odoo_ref) : ''} · Cover target ${ind.cover_days} days · Sales analysed over the last ${ind.sales_window_days} days</p>
+    <div class="note info">Warehouse stock shown is the merged total of: <b>${(ind.warehouses_merged || []).map(esc).join(', ')}</b>.</div>
+    <div class="grid" style="margin:12px 0">
+      <div class="tile"><small>Total requested</small><b>${fmt(tot('requested_qty'))}</b></div>
+      <div class="tile"><small>Recommended to issue</small><b>${fmt(tot('suggested_qty'))}</b></div>
+      <div class="tile"><small>Give / Partial / Do not give</small><b>${cnt('give')} / ${cnt('partial')} / ${cnt('do_not_give')}</b></div>
+    </div>
+    <div class="tablewrap recv"><table><thead><tr><th>Product</th><th class="n">Requested</th><th class="n">Location Stock</th><th class="n">Avg Daily Sales</th><th class="n">Need</th><th class="n">Warehouse Stock</th>
+      <th class="n">Recommended Qty</th><th>Decision</th><th>Reason</th><th class="n">${open ? 'Qty to Receive' : 'Received Qty'}</th></tr></thead><tbody>
+      ${lines.map(r => `<tr><td>${esc(prodName(r.product_id))}</td><td class="n">${fmt(r.requested_qty)}</td><td class="n">${fmt(r.location_stock)}</td>
+        <td class="n">${fmt(r.avg_daily_sales)}</td><td class="n">${fmt(r.need_qty)}</td><td class="n">${fmt(r.warehouse_stock)}</td>
+        <td class="n"><b>${fmt(r.suggested_qty)}</b></td>
+        <td><span class="badge b-${r.decision}">${{give: 'Give', partial: 'Partial', do_not_give: 'Do Not Give'}[r.decision]}</span></td>
+        <td>${esc(r.reason)}</td>
+        <td class="n">${open ? `<input type="number" min="0" step="any" data-pid="${r.product_id}" data-sug="${r.suggested_qty}" value="${r.suggested_qty}">` : fmt(r.received_qty)}</td></tr>`).join('')}
+      <tr class="total"><td>Total</td><td class="n">${fmt(tot('requested_qty'))}</td><td></td><td></td><td></td><td></td><td class="n">${fmt(tot('suggested_qty'))}</td><td colspan="3"></td></tr>
+    </tbody></table></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn alt" id="inXls">Download Decision (Excel)</button>
+      ${open ? `<div><label>Issued from warehouse</label><select id="inSrc">${whs.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+        <button class="btn" id="inRecv">Mark as Received</button>`
+        : `<span class="muted">Received on ${new Date(ind.received_at).toLocaleString('en-GB', {timeZone: TZ})} from ${esc(locName(ind.source_warehouse_id))}.</span>`}
+    </div><div id="inRecvMsg"></div></div>`;
+  $('#inXls').onclick = () => downloadSheet(`${ind.indent_no}_Decision.xlsx`,
+    [['Product Name', 'Requested Qty', 'Recommended Qty', 'Decision', 'Reason']].concat(lines.map(r => [prodName(r.product_id), Number(r.requested_qty), Number(r.suggested_qty), r.decision, r.reason])));
+  if (open) $('#inRecv').onclick = async () => {
+    const msg = $('#inRecvMsg'), btn = $('#inRecv');
+    const overrides = [...out.querySelectorAll('input[data-pid]')].filter(i => Number(i.value) !== Number(i.dataset.sug))
+      .map(i => ({product_id: i.dataset.pid, qty: Number(i.value)}));
+    if (overrides.some(o => !(o.qty >= 0))) return note(msg, 'Received quantities must be zero or greater.', 'err');
+    if (!confirm('Confirm receipt? Stock will be added to the sales point and deducted from the selected warehouse.')) return;
+    btn.disabled = true;
+    try {
+      const {error} = await db.rpc('receive_indent', {p_indent_id: id, p_source_warehouse_id: $('#inSrc').value, p_overrides: overrides});
+      if (error) throw error;
+      toast('Indent received. Stock updated.'); await showIndent(id); await indentHistory();
+    } catch (e) { note(msg, esc(e.message || e), 'err'); btn.disabled = false; }
+  };
+}
+
+// ================================ OPENING STOCK ================================
+async function renderOpening(v) {
+  v.innerHTML = `<div class="card"><h2>Opening Stock</h2>
+    <p class="sub">Upload the opening inventory for each warehouse and sales point once. Daily sales are counted from the opening date onward.</p>
+    <div class="row">
+      <div><label>Location</label><select id="opLoc">${locations.map(l => `<option value="${l.id}">${esc(l.name)} (${l.type === 'warehouse' ? 'Warehouse' : 'Sales Point'})</option>`).join('')}</select></div>
+      <div><label>Opening date</label><input type="date" id="opDate" value="${today()}"></div>
+      <div><label>Opening stock sheet (.xlsx)</label><input type="file" id="opFile" accept=".xlsx,.xls,.csv"></div>
+      <button class="btn" id="opGo">Upload Opening Stock</button>
+      <button class="btn alt" id="opTpl">Download Template</button>
+    </div><div id="opMsg"></div></div><div id="opStatus"></div>`;
+  $('#opTpl').onclick = () => downloadSheet('Opening_Stock_Template.xlsx', [['Product Name', 'Opening Qty'], [products[0]?.name || 'Product name', 100]]);
+  const status = async () => {
+    const led = await fetchAll((a, b) => db.from('stock_ledger').select('location_id').eq('entry_type', 'opening').order('id').range(a, b));
+    const c = new Map(); led.forEach(r => c.set(r.location_id, (c.get(r.location_id) || 0) + 1));
+    const fresh = (await db.from('locations').select('id,opening_date')).data || [];
+    $('#opStatus').innerHTML = `<div class="card"><h3>Opening stock status</h3><div class="tablewrap"><table><thead><tr><th>Location</th><th>Type</th><th class="n">Products with opening stock</th><th>Opening date</th></tr></thead><tbody>
+      ${locations.map(l => `<tr><td>${esc(l.name)}</td><td>${l.type === 'warehouse' ? 'Warehouse' : 'Sales Point'}</td><td class="n">${c.get(l.id) || 0}</td><td>${(fresh.find(x => x.id === l.id) || {}).opening_date || '—'}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  };
+  $('#opGo').onclick = async () => {
+    const msg = $('#opMsg'), btn = $('#opGo'); note(msg, '');
+    try {
+      const f = $('#opFile').files[0]; if (!f) return note(msg, 'Please choose the opening stock sheet first.', 'warn');
+      const locId = $('#opLoc').value;
+      const res = matchRows(await readSheet(f), ['Opening Qty', 'Qty', 'Quantity']);
+      if (res.unmatched.length || res.errors.length) return note(msg, problemHtml(res), 'err');
+      const agg = new Map(); res.items.forEach(i => agg.set(i.product.id, (agg.get(i.product.id) || 0) + i.qty));
+      if (!agg.size) return note(msg, 'The sheet contains no rows.', 'warn');
+      const existing = await fetchAll((a, b) => db.from('stock_ledger').select('product_id').eq('entry_type', 'opening').eq('location_id', locId).order('id').range(a, b));
+      const dup = existing.filter(r => agg.has(r.product_id)).map(r => prodName(r.product_id));
+      if (dup.length) return note(msg, `<b>Opening stock already exists for ${dup.length} product(s) at this location:</b><br>${dup.slice(0, 10).map(esc).join('<br>')}<br>Use a stock adjustment instead of uploading opening stock again.`, 'err');
+      btn.disabled = true;
+      const rows = [...agg].map(([pid, qty]) => ({location_id: locId, product_id: pid, entry_date: $('#opDate').value, entry_type: 'opening', qty}));
+      for (let i = 0; i < rows.length; i += 500) { const {error} = await db.from('stock_ledger').insert(rows.slice(i, i + 500)); if (error) throw error; }
+      const up = await db.from('locations').update({opening_date: $('#opDate').value}).eq('id', locId).select();
+      toast(`Opening stock saved for ${rows.length} products.`);
+      note(msg, `Saved ${rows.length} products.${up.data && up.data.length ? '' : ' The opening date could not be saved with this role; log in as Super Admin or Admin to set it.'}`, 'ok');
+      await status();
+    } catch (e) { note(msg, esc(e.message || e), 'err'); }
+    finally { btn.disabled = false; }
+  };
+  await status();
+}
+
+// ================================= DAILY SALES =================================
+async function renderSales(v) {
+  const sps = locations.filter(l => l.type === 'sales_point');
+  v.innerHTML = `<div class="card"><h2>Daily Sales</h2>
+    <p class="sub">Upload sales with the columns <b>Date</b>, <b>Product Name</b> and <b>Sales Qty</b>. Uploading a date again replaces that day's figures for the product.</p>
+    <div class="row">
+      <div><label>Sales point</label><select id="slLoc">${sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
+      <div><label>Sales sheet (.xlsx)</label><input type="file" id="slFile" accept=".xlsx,.xls,.csv"></div>
+      <button class="btn" id="slGo">Upload Sales</button>
+      <button class="btn alt" id="slTpl">Download Template</button>
+    </div><div id="slMsg"></div></div><div id="slRecent"></div>`;
+  $('#slTpl').onclick = () => downloadSheet('Daily_Sales_Template.xlsx', [['Date', 'Product Name', 'Sales Qty'], [today(), products[0]?.name || 'Product name', 5]]);
+  const recent = async () => {
+    const loc = $('#slLoc').value;
+    const rows = await salesSince(addDays(today(), -13), loc);
+    const byDate = new Map(); rows.forEach(r => { const o = byDate.get(r.sale_date) || {n: 0, u: 0}; o.n++; o.u += Number(r.qty); byDate.set(r.sale_date, o); });
+    const dates = [...byDate.keys()].sort().reverse();
+    $('#slRecent').innerHTML = `<div class="card"><h3>Last 14 days — ${esc(locName(loc))}</h3><div class="tablewrap"><table><thead><tr><th>Date</th><th class="n">Products sold</th><th class="n">Units sold</th></tr></thead><tbody>
+      ${dates.map(d => `<tr><td>${d}</td><td class="n">${byDate.get(d).n}</td><td class="n">${fmt(byDate.get(d).u)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">No sales uploaded for this period.</td></tr>'}
+      </tbody></table></div></div>`;
+  };
+  $('#slLoc').onchange = recent;
+  $('#slGo').onclick = async () => {
+    const msg = $('#slMsg'), btn = $('#slGo'); note(msg, '');
+    try {
+      const f = $('#slFile').files[0]; if (!f) return note(msg, 'Please choose the sales sheet first.', 'warn');
+      const res = matchRows(await readSheet(f), ['Sales Qty', 'Qty', 'Quantity']);
+      const agg = new Map(), t = today();
+      res.items.forEach(i => {
+        const d = String(pick(i.row, 'Date')).trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { res.errors.push(`Row ${i.rowNo}: date "${d}" is not valid (use yyyy-mm-dd).`); return; }
+        if (d > t) { res.errors.push(`Row ${i.rowNo}: date ${d} is in the future.`); return; }
+        const k = d + '|' + i.product.id; agg.set(k, (agg.get(k) || 0) + i.qty);
+      });
+      if (res.unmatched.length || res.errors.length) return note(msg, problemHtml(res), 'err');
+      if (!agg.size) return note(msg, 'The sheet contains no rows.', 'warn');
+      btn.disabled = true;
+      const loc = $('#slLoc').value;
+      const rows = [...agg].map(([k, qty]) => { const [d, pid] = k.split('|'); return {location_id: loc, product_id: pid, sale_date: d, qty}; });
+      for (let i = 0; i < rows.length; i += 500) {
+        const {error} = await db.from('daily_sales').upsert(rows.slice(i, i + 500), {onConflict: 'location_id,product_id,sale_date'});
+        if (error) throw error;
+      }
+      const ds = rows.map(r => r.sale_date).sort();
+      toast(`Sales saved: ${rows.length} rows.`);
+      note(msg, `Saved ${rows.length} rows for ${esc(locName(loc))} (${ds[0]} to ${ds[ds.length - 1]}).`, 'ok');
+      await recent();
+    } catch (e) { note(msg, esc(e.message || e), 'err'); }
+    finally { btn.disabled = false; }
+  };
+  await recent();
+}
+
+// ================================== PRODUCTS ==================================
+async function renderProducts(v) {
+  v.innerHTML = `<div class="card"><h2>Products</h2>
+    <p class="sub">The product master. Product names in every uploaded sheet must match these names exactly (capitalisation and extra spaces are ignored).</p>
+    <div class="row"><div><label>Import products (.xlsx) — columns: Product Name, SKU, MRP</label><input type="file" id="prFile" accept=".xlsx,.xls,.csv"></div>
+    <button class="btn" id="prGo">Import New Products</button><button class="btn alt" id="prTpl">Download Template</button></div><div id="prMsg"></div></div>
+    <div class="card"><div class="tablewrap"><table><thead><tr><th>Product Name</th><th>SKU</th><th class="n">MRP</th></tr></thead><tbody>
+    ${products.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.sku || '')}</td><td class="n">${p.mrp == null ? '' : fmt(p.mrp)}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+  $('#prTpl').onclick = () => downloadSheet('Products_Template.xlsx', [['Product Name', 'SKU', 'MRP'], ['Sample product', 'SKU-001', 500]]);
+  $('#prGo').onclick = async () => {
+    const msg = $('#prMsg'), btn = $('#prGo'); note(msg, '');
+    try {
+      const f = $('#prFile').files[0]; if (!f) return note(msg, 'Please choose the product sheet first.', 'warn');
+      const map = productMap(), seen = new Set(), rows = [], errs = [];
+      (await readSheet(f)).forEach((r, i) => {
+        const name = String(pick(r, 'Product Name', 'Product')).trim(); if (!name) return;
+        const key = norm(name); if (map.has(key) || seen.has(key)) return; seen.add(key);
+        const mrpRaw = pick(r, 'MRP'), mrp = String(mrpRaw).trim() === '' ? null : num(mrpRaw);
+        if (mrp !== null && !Number.isFinite(mrp)) { errs.push(`Row ${i + 2}: invalid MRP for "${name}".`); return; }
+        rows.push({name, sku: String(pick(r, 'SKU')).trim() || null, mrp});
+      });
+      if (errs.length) return note(msg, errs.map(esc).join('<br>'), 'err');
+      if (!rows.length) return note(msg, 'No new products found; all names already exist.', 'info');
+      btn.disabled = true;
+      const {error} = await db.from('products').insert(rows); if (error) throw error;
+      toast(`${rows.length} products added.`); await applySession();
+    } catch (e) { note(msg, esc(e.message || e), 'err'); }
+    finally { btn.disabled = false; }
+  };
+}
+
+boot();
+</script>
+</body>
+</html>
