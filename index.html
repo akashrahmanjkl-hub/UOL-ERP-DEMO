@@ -264,7 +264,7 @@ const TABS = [
   {id: 'indent', label: 'Indent Management', central: true, render: renderIndent},
   {id: 'opening', label: 'Opening Stock', central: true, render: renderOpening},
   {id: 'sales', label: 'Daily Sales', render: renderSales},
-  {id: 'products', label: 'Products', central: true, render: renderProducts}
+  {id: 'master', label: 'Master Data', central: true, render: renderMaster}
 ];
 function buildTabs() {
   $('#tabs').innerHTML = TABS.filter(t => t.central ? isCentral() : true)
@@ -590,33 +590,96 @@ async function renderSales(v) {
   await recent();
 }
 
-// ================================== PRODUCTS ==================================
-async function renderProducts(v) {
-  v.innerHTML = `<div class="card"><h2>Products</h2>
-    <p class="sub">The product master. Product names in every uploaded sheet must match these names exactly (capitalisation and extra spaces are ignored).</p>
-    <div class="row"><div><label>Import products (.xlsx) — columns: Product Name, SKU, MRP</label><input type="file" id="prFile" accept=".xlsx,.xls,.csv"></div>
-    <button class="btn" id="prGo">Import New Products</button><button class="btn alt" id="prTpl">Download Template</button></div><div id="prMsg"></div></div>
-    <div class="card"><div class="tablewrap"><table><thead><tr><th>Product Name</th><th>SKU</th><th class="n">MRP</th></tr></thead><tbody>
-    ${products.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.sku || '')}</td><td class="n">${p.mrp == null ? '' : fmt(p.mrp)}</td></tr>`).join('')}
-    </tbody></table></div></div>`;
-  $('#prTpl').onclick = () => downloadSheet('Products_Template.xlsx', [['Product Name', 'SKU', 'MRP'], ['Sample product', 'SKU-001', 500]]);
+// ================================ MASTER DATA ================================
+let mdTab = 'products';
+async function renderMaster(v) {
+  v.innerHTML = `<div class="card"><h2>Master Data</h2>
+    <p class="sub">Bulk import and maintain products and locations. Importing again updates existing rows (matched by SKU or name for products, by Code for locations) and adds new ones.</p>
+    <div class="row"><button class="btn ${mdTab === 'products' ? '' : 'alt'}" id="mdP">Products</button><button class="btn ${mdTab === 'locations' ? '' : 'alt'}" id="mdL">Locations</button></div></div><div id="mdBody"></div>`;
+  $('#mdP').onclick = () => { mdTab = 'products'; showTab('master'); };
+  $('#mdL').onclick = () => { mdTab = 'locations'; showTab('master'); };
+  return mdTab === 'products' ? mdProducts($('#mdBody')) : mdLocations($('#mdBody'));
+}
+const yes = v => !['no', 'n', 'false', '0', 'inactive'].includes(String(v).trim().toLowerCase());
+function exportSheet(name, aoa) { downloadSheet(name, aoa); }
+
+async function mdProducts(b) {
+  b.innerHTML = `<div class="card"><h3>Import Products</h3>
+    <p class="sub">Columns: <b>Product Name</b> (required), SKU, Unit, MRP, Active (Yes/No). Blank cells keep the existing value.</p>
+    <div class="row"><div><label>Products sheet (.xlsx / .csv)</label><input type="file" id="prFile" accept=".xlsx,.xls,.csv"></div>
+    <button class="btn" id="prGo">Import / Update</button><button class="btn alt" id="prTpl">Download Template</button><button class="btn alt" id="prExp">Export Current</button></div><div id="prMsg"></div></div>
+    <div class="card"><h3>${products.length} products</h3><div class="tablewrap"><table><thead><tr><th>Product Name</th><th>SKU</th><th>Unit</th><th class="n">MRP</th><th>Active</th></tr></thead><tbody>
+    ${products.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.sku || '')}</td><td>${esc(p.unit || '')}</td><td class="n">${p.mrp == null ? '' : fmt(p.mrp)}</td><td>${p.is_active ? 'Yes' : 'No'}</td></tr>`).join('')}</tbody></table></div></div>`;
+  $('#prTpl').onclick = () => downloadSheet('Products_Template.xlsx', [['Product Name', 'SKU', 'Unit', 'MRP', 'Active'], ['Sample product', 'SKU-001', 'pcs', 500, 'Yes']]);
+  $('#prExp').onclick = () => exportSheet('Products_Export.xlsx', [['Product Name', 'SKU', 'Unit', 'MRP', 'Active']].concat(products.map(p => [p.name, p.sku || '', p.unit || '', p.mrp ?? '', p.is_active ? 'Yes' : 'No'])));
   $('#prGo').onclick = async () => {
     const msg = $('#prMsg'), btn = $('#prGo'); note(msg, '');
     try {
-      const f = $('#prFile').files[0]; if (!f) return note(msg, 'Please choose the product sheet first.', 'warn');
-      const map = productMap(), seen = new Set(), rows = [], errs = [];
+      const f = $('#prFile').files[0]; if (!f) return note(msg, 'Please choose the products sheet first.', 'warn');
+      const bySku = new Map(products.filter(p => p.sku).map(p => [norm(p.sku), p])), byName = productMap();
+      const seen = new Set(), ins = [], upd = [], errs = [];
       (await readSheet(f)).forEach((r, i) => {
-        const name = String(pick(r, 'Product Name', 'Product')).trim(); if (!name) return;
-        const key = norm(name); if (map.has(key) || seen.has(key)) return; seen.add(key);
-        const mrpRaw = pick(r, 'MRP'), mrp = String(mrpRaw).trim() === '' ? null : num(mrpRaw);
-        if (mrp !== null && !Number.isFinite(mrp)) { errs.push(`Row ${i + 2}: invalid MRP for "${name}".`); return; }
-        rows.push({name, sku: String(pick(r, 'SKU')).trim() || null, mrp});
+        const name = String(pick(r, 'Product Name', 'Product', 'Name')).trim(); if (!name) return;
+        const sku = String(pick(r, 'SKU')).trim(), unit = String(pick(r, 'Unit')).trim(), act = String(pick(r, 'Active')).trim();
+        const mr = String(pick(r, 'MRP')).trim(), mrp = mr === '' ? undefined : num(mr);
+        if (mrp !== undefined && !Number.isFinite(mrp)) return errs.push(`Row ${i + 2}: invalid MRP for "${name}".`);
+        const ex = (sku && bySku.get(norm(sku))) || byName.get(norm(name));
+        const key = ex ? ex.id : norm(name); if (seen.has(key)) return errs.push(`Row ${i + 2}: duplicate of an earlier row ("${name}").`); seen.add(key);
+        if (ex) upd.push({id: ex.id, name, sku: sku || ex.sku, unit: unit || ex.unit, mrp: mrp === undefined ? ex.mrp : mrp, is_active: act === '' ? ex.is_active : yes(act)});
+        else ins.push({name, sku: sku || null, unit: unit || 'pcs', mrp: mrp === undefined ? null : mrp, is_active: act === '' ? true : yes(act)});
       });
-      if (errs.length) return note(msg, errs.map(esc).join('<br>'), 'err');
-      if (!rows.length) return note(msg, 'No new products found; all names already exist.', 'info');
+      if (errs.length) return note(msg, errs.slice(0, 15).map(esc).join('<br>'), 'err');
+      if (!ins.length && !upd.length) return note(msg, 'No rows found in the sheet.', 'info');
       btn.disabled = true;
-      const {error} = await db.from('products').insert(rows); if (error) throw error;
-      toast(`${rows.length} products added.`); await applySession();
+      if (ins.length) { const r = await db.from('products').insert(ins); if (r.error) throw r.error; }
+      if (upd.length) { const r = await db.from('products').upsert(upd, {onConflict: 'id'}); if (r.error) throw r.error; }
+      toast(`${ins.length} added, ${upd.length} updated.`); await applySession();
+    } catch (e) { note(msg, esc(e.message || e), 'err'); }
+    finally { btn.disabled = false; }
+  };
+}
+
+async function mdLocations(b) {
+  const all = await db.from('locations').select('*').order('type').order('code');
+  if (all.error) throw all.error; const locs = all.data;
+  const canEdit = ['super_admin', 'admin'].includes(session.role);
+  const tname = t => t === 'warehouse' ? 'Warehouse' : 'Sales Point';
+  b.innerHTML = `<div class="card"><h3>Import Locations</h3>
+    <p class="sub">Columns: <b>Code</b>, <b>Name</b>, <b>Type</b> (Warehouse / Sales Point), Opening Date (yyyy-mm-dd), Active (Yes/No). ${canEdit ? '' : '<b>Only Super Admin / Admin can change locations.</b>'}</p>
+    <div class="row"><div><label>Locations sheet (.xlsx / .csv)</label><input type="file" id="lcFile" accept=".xlsx,.xls,.csv"></div>
+    <button class="btn" id="lcGo" ${canEdit ? '' : 'disabled'}>Import / Update</button><button class="btn alt" id="lcTpl">Download Template</button><button class="btn alt" id="lcExp">Export Current</button></div><div id="lcMsg"></div></div>
+    <div class="card"><h3>${locs.length} locations</h3><div class="tablewrap"><table><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Opening Date</th><th>Active</th></tr></thead><tbody>
+    ${locs.map(l => `<tr><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${tname(l.type)}</td><td>${l.opening_date || ''}</td><td>${l.is_active ? 'Yes' : 'No'}</td></tr>`).join('')}</tbody></table></div></div>`;
+  $('#lcTpl').onclick = () => downloadSheet('Locations_Template.xlsx', [['Code', 'Name', 'Type', 'Opening Date', 'Active'], ['SP-08', 'New Outlet', 'Sales Point', '', 'Yes']]);
+  $('#lcExp').onclick = () => exportSheet('Locations_Export.xlsx', [['Code', 'Name', 'Type', 'Opening Date', 'Active']].concat(locs.map(l => [l.code, l.name, tname(l.type), l.opening_date || '', l.is_active ? 'Yes' : 'No'])));
+  $('#lcGo').onclick = async () => {
+    const msg = $('#lcMsg'), btn = $('#lcGo'); note(msg, '');
+    try {
+      const f = $('#lcFile').files[0]; if (!f) return note(msg, 'Please choose the locations sheet first.', 'warn');
+      const byCode = new Map(locs.map(l => [norm(l.code), l])), seen = new Set(), ins = [], upd = [], errs = [];
+      (await readSheet(f)).forEach((r, i) => {
+        const code = String(pick(r, 'Code', 'Location Code')).trim().toUpperCase(), name = String(pick(r, 'Name', 'Location Name')).trim();
+        if (!code && !name) return;
+        if (!code || !name) return errs.push(`Row ${i + 2}: Code and Name are both required.`);
+        const tr = norm(pick(r, 'Type')).replace(/[_-]/g, ' '), od = String(pick(r, 'Opening Date')).trim(), act = String(pick(r, 'Active')).trim();
+        const type = ['warehouse', 'wh'].includes(tr) ? 'warehouse' : ['sales point', 'salespoint', 'sp', 'outlet'].includes(tr) ? 'sales_point' : '';
+        const ex = byCode.get(norm(code));
+        if (!type && !ex) return errs.push(`Row ${i + 2}: Type must be Warehouse or Sales Point (${code}).`);
+        if (od && !/^\d{4}-\d{2}-\d{2}$/.test(od)) return errs.push(`Row ${i + 2}: Opening Date must be yyyy-mm-dd (${code}).`);
+        if (seen.has(norm(code))) return errs.push(`Row ${i + 2}: duplicate code ${code}.`); seen.add(norm(code));
+        if (ex) { if (type && type !== ex.type) return errs.push(`Row ${i + 2}: ${code} is already a ${tname(ex.type)}; type cannot be changed.`);
+          upd.push({id: ex.id, code: ex.code, name, type: ex.type, opening_date: od || ex.opening_date, is_active: act === '' ? ex.is_active : yes(act)}); }
+        else ins.push({code, name, type, opening_date: od || null, is_active: act === '' ? true : yes(act)});
+      });
+      if (errs.length) return note(msg, errs.slice(0, 15).map(esc).join('<br>'), 'err');
+      if (!ins.length && !upd.length) return note(msg, 'No rows found in the sheet.', 'info');
+      btn.disabled = true;
+      if (ins.length) { const r = await db.from('locations').insert(ins); if (r.error) throw r.error; }
+      if (upd.length) { const r = await db.from('locations').upsert(upd, {onConflict: 'id'}); if (r.error) throw r.error; }
+      toast(`${ins.length} added, ${upd.length} updated.`);
+      const fresh = await db.from('locations').select('*').eq('is_active', true).order('type').order('name');
+      if (!fresh.error) { allLocations = fresh.data; buildLoginAs(); }
+      await applySession();
     } catch (e) { note(msg, esc(e.message || e), 'err'); }
     finally { btn.disabled = false; }
   };
