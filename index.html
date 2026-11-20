@@ -294,13 +294,18 @@ const TABS = [
   {id: 'indent', label: 'Indent Management', central: true, render: renderIndent},
   {id: 'plan', label: 'Distribution & Forecasting', central: true, render: renderPlan},
   {id: 'challan', label: 'Delivery Challan', render: renderChallan},
-  {id: 'stockops', label: 'Stock Operations', render: renderStockOps},
+  {id: 'transfer', label: 'Transfer', central: true, render: v => stockOps(v, 'trf')},
+  {id: 'return', label: 'Return', render: v => stockOps(v, 'ret')},
+  {id: 'adjust', label: 'Adjustment', central: true, render: v => stockOps(v, 'adj')},
+  {id: 'qcfail', label: 'QC Fail', render: v => stockOps(v, 'qc')},
+  {id: 'stockdocs', label: 'Stock Documents', render: v => stockOps(v, 'docs')},
+  {id: 'stockops', label: 'Stock Operations', central: true, render: v => stockOps(v, 'cnt')},
   {id: 'master', label: 'Master Data', central: true, render: renderMaster},
   {id: 'audit', label: 'Audit Trail', admin: true, render: renderAudit}
 ];
 function buildTabs() {
   $('#tabs').innerHTML = TABS.filter(t => tabOk(t))
-    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',stockops:'🔄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
+    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
@@ -953,11 +958,11 @@ function printChallan(c, lines) {
 
 // ============================ STOCK OPERATIONS (adjust / damage / return / transfer / count) ============================
 let opTab = null;
-const DOC_TYPES = {adjustment: 'Adjustment', damage: 'Damage', return: 'Return', transfer: 'Transfer', count: 'Physical Count'};
+const DOC_TYPES = {adjustment: 'Adjustment', damage: 'QC Fail', return: 'Return', transfer: 'Transfer', count: 'Physical Count'};
 const DOC_STATUS = {posted: 'Posted', in_transit: 'In transit', received: 'Received', cancelled: 'Cancelled'};
 const REASONS = {
   adjustment: ['Stock correction', 'Found extra stock', 'Wrong entry correction', 'Other'],
-  damage: ['Damaged', 'Expired', 'Lost / theft', 'Sample / gift', 'Other'],
+  damage: ['QC failed', 'Damaged', 'Expired', 'Contaminated / leakage', 'Lost / theft', 'Other'],
   return: ['Excess stock', 'Near expiry', 'Damaged / defective', 'Wrong item delivered', 'Other'],
   transfer: ['Rebalancing between warehouses', 'Space / closing', 'Other']
 };
@@ -995,31 +1000,33 @@ function lineEditor(el, qtyLabel) {
   };
 }
 const optList = (arr, sel) => arr.map(l => `<option value="${l.id}" ${l.id === sel ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
-async function renderStockOps(v) {
+async function stockOps(v, mode) {
   const central = isCentral(), whs = allLocations.filter(l => l.type === 'warehouse'), sps = allLocations.filter(l => l.type === 'sales_point');
-  const tabs = [['adj', central ? 'Adjust / Damage' : 'Report Damage'], ['ret', 'Return'], ...(central ? [['trf', 'Transfer'], ['cnt', 'Physical Count']] : []), ['docs', 'Documents']];
-  if (!opTab || !tabs.some(t => t[0] === opTab)) opTab = tabs[0][0];
-  v.innerHTML = `<div class="card"><h2>Stock Operations</h2><p class="sub">Every stock change is recorded as a numbered document with a reason, and appears in the Audit Trail. Stock can never go below zero.</p>
-    <div class="row">${tabs.map(t => `<button class="btn ${t[0] === opTab ? '' : 'alt'}" data-t="${t[0]}">${t[1]}</button>`).join('')}</div></div><div id="opBody"></div>`;
-  v.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { opTab = b.dataset.t; showTab('stockops'); });
+  const TITLES = {
+    adj: ['Adjustment', 'Correct stock up or down (for example a counting mistake or extra stock found). A reason is required.'],
+    qc: ['QC Fail', 'Remove stock that failed quality control or was lost, expired or damaged. The stock is deducted immediately.'],
+    ret: ['Return', 'Send stock back from a sales point to a warehouse. It leaves the sales point now and is added to the warehouse when received (see Stock Documents).'],
+    trf: ['Transfer', 'Move stock from one warehouse to another. It leaves the sender now and is added at the destination when received (see Stock Documents).'],
+    cnt: ['Stock Operations — Physical Count', 'Count the stock physically and correct the system to the counted quantity.'],
+    docs: ['Stock Documents', 'All adjustments, QC fails, returns, transfers and counts. Receive or cancel returns and transfers that are in transit.']};
+  opTab = mode;
+  v.innerHTML = `<div class="card"><h2>${TITLES[mode][0]}</h2><p class="sub">${TITLES[mode][1]} Every change gets a document number and appears in the Audit Trail. Stock can never go below zero.</p></div><div id="opBody"></div>`;
   const body = $('#opBody'), today0 = today();
   const submit = (msg, btn, fn, label) => async () => { note(msg, ''); btn.disabled = true;
-    try { const no = await fn(); toast(`${label} ${no}`); opTab = 'docs'; await showTab('stockops'); } catch (e) { note(msg, esc(e.message || e), 'err'); btn.disabled = false; } };
+    try { const no = await fn(); toast(`${label} ${no}`); await showTab('stockdocs'); } catch (e) { note(msg, esc(e.message || e), 'err'); btn.disabled = false; } };
   const dateF = `<div><label>Date</label><input type="date" id="opD" value="${today0}" max="${today0}"></div>`;
   const reasonF = (t, sel) => `<div><label>Reason</label><select id="opR">${REASONS[t].map(r => `<option>${r}</option>`).join('')}</select></div>`;
-  if (opTab === 'adj') {
-    const locs = central ? locations : locations.filter(l => l.id === session.locationId);
-    body.innerHTML = `<div class="card"><h3>${central ? 'Stock Adjustment / Damage' : 'Report Damage'}</h3>
-      <div class="row"><div><label>Location</label><select id="opL">${optList(locs, session.locationId)}</select></div>
-      <div><label>Type</label><select id="opT">${central ? '<option value="adjustment">Adjustment (+ / −)</option>' : ''}<option value="damage">Damage / loss</option></select></div>${dateF}${reasonF(central ? 'adjustment' : 'damage')}
-      <div><label>Note (optional)</label><input type="text" id="opN"></div></div><div id="opLines"></div><div id="opM"></div><button class="btn" id="opGo" style="margin-top:12px">Post</button></div>`;
-    const ed = lineEditor($('#opLines'), central ? 'Adjust Qty (+/−)' : 'Damaged Qty');
-    $('#opT').onchange = () => { const t = $('#opT').value; $('#opR').innerHTML = REASONS[t].map(r => `<option>${r}</option>`).join(''); ed.setLabel(t === 'damage' ? 'Damaged Qty' : 'Adjust Qty (+/−)'); };
+  if (opTab === 'adj' || opTab === 'qc') {
+    const qc = opTab === 'qc', t = qc ? 'damage' : 'adjustment', locs = central ? locations : locations.filter(l => l.id === session.locationId);
+    body.innerHTML = `<div class="card"><h3>${qc ? 'New QC Fail' : 'New Adjustment'}</h3>
+      <div class="row"><div><label>Location</label><select id="opL">${optList(locs, session.locationId)}</select></div>${dateF}${reasonF(t)}
+      <div><label>Note (optional)</label><input type="text" id="opN"></div></div><div id="opLines"></div><div id="opM"></div><button class="btn" id="opGo" style="margin-top:12px">${qc ? 'Post QC Fail' : 'Post Adjustment'}</button></div>`;
+    const ed = lineEditor($('#opLines'), qc ? 'QC Fail Qty' : 'Adjust Qty (+/−)');
     $('#opGo').onclick = () => submit($('#opM'), $('#opGo'), async () => {
-      const lines = ed.get(), t = $('#opT').value;
-      if (!confirm(`${t === 'damage' ? 'Remove damaged stock' : 'Post adjustment'} for ${lines.length} product(s) at ${locName($('#opL').value)}?`)) throw new Error('Cancelled.');
+      const lines = ed.get();
+      if (!confirm(`${qc ? 'Remove QC-failed stock' : 'Post adjustment'} for ${lines.length} product(s) at ${locName($('#opL').value)}?`)) throw new Error('Cancelled.');
       const {data, error} = await db.rpc('post_stock_adjustment', {p_type: t, p_location: $('#opL').value, p_date: $('#opD').value, p_reason: $('#opR').value, p_note: $('#opN').value.trim() || null, p_lines: lines});
-      if (error) throw error; return data; }, 'Posted')();
+      if (error) throw error; return data; }, qc ? 'QC fail posted' : 'Adjustment posted')();
   } else if (opTab === 'ret' || opTab === 'trf') {
     const ret = opTab === 'ret', from = ret ? (central ? sps : sps.filter(l => l.id === session.locationId)) : whs;
     body.innerHTML = `<div class="card"><h3>${ret ? 'Return: sales point → warehouse' : 'Transfer: warehouse → warehouse'}</h3><p class="sub">Stock leaves the sender now and is added at the destination only when it is received (see Documents).</p>
@@ -1082,7 +1089,7 @@ async function renderStockOps(v) {
       $('#dcL').querySelectorAll('[data-v]').forEach(b => b.onclick = () => docDialog(ds.find(d => d.id === b.dataset.v), byD.get(b.dataset.v) || [], canRecv));
       $('#dcL').querySelectorAll('[data-c]').forEach(b => b.onclick = async () => {
         const d = ds.find(x => x.id === b.dataset.c); if (!confirm(`Cancel ${d.doc_no}? The stock goes back to ${locName(d.location_id)}.`)) return;
-        const {error} = await db.rpc('cancel_stock_doc', {p_doc: d.id}); if (error) return toast(error.message, 'err'); toast('Cancelled; stock returned.'); await showTab('stockops');
+        const {error} = await db.rpc('cancel_stock_doc', {p_doc: d.id}); if (error) return toast(error.message, 'err'); toast('Cancelled; stock returned.'); await showTab('stockdocs');
       });
     };
     $('#dcT').onchange = draw; $('#dcS').onchange = draw; draw();
@@ -1108,7 +1115,7 @@ function docDialog(d, lines, canRecv) {
     if (!confirm('Confirm receipt?')) return; $('#rcOk').disabled = true;
     const {error} = await db.rpc('receive_stock_doc', {p_doc: d.id, p_lines: vals, p_note: $('#rcNote').value.trim() || null});
     if (error) { note($('#ovM'), esc(error.message), 'err'); $('#rcOk').disabled = false; return; }
-    ov.remove(); toast('Received. Stock updated.'); await showTab('stockops');
+    ov.remove(); toast('Received. Stock updated.'); await showTab('stockdocs');
   };
 }
 
