@@ -574,6 +574,7 @@ async function renderSales(v) {
       <button class="btn" id="slGo">Upload Sales</button>
       <button class="btn alt" id="slTpl">Download Template</button>
     </div><div id="slMsg"></div></div><div id="slRecent"></div>`;
+  if (isCentral()) bulkSales(v, sps);
   $('#slTpl').onclick = () => downloadSheet('Daily_Sales_Template.xlsx', [['Date', 'Product Name', 'Sales Qty'], [today(), products[0]?.name || 'Product name', 5]]);
   const recent = async () => {
     const loc = $('#slLoc').value;
@@ -614,6 +615,84 @@ async function renderSales(v) {
     finally { btn.disabled = false; }
   };
   await recent();
+}
+
+// ---------- bulk daily sales: one date, one workbook, one sheet per sales point ----------
+function bulkSales(v, sps) {
+  v.insertAdjacentHTML('afterbegin', `<div class="card"><h2>Daily Sales — All Sales Points (one file)</h2>
+    <p class="sub">Pick the date, then upload one Excel file with <b>one sheet per sales point</b> (sheet name = sales point name; columns <b>Product Code</b>, <b>Product Name</b>, <b>Sales Data</b>).
+    Sales points with no sheet, and products not listed in a sheet, are saved as <b>0 sales</b> for that date. Uploading the same date again replaces it.</p>
+    <div class="row"><div><label>Sales date</label><input type="date" id="bkDate" value="${today()}" max="${today()}"></div>
+    <div><label>Workbook (.xlsx)</label><input type="file" id="bkFile" accept=".xlsx,.xls"></div>
+    <button class="btn" id="bkGo">Check File</button><button class="btn alt" id="bkTpl">Download Template</button></div><div id="bkMsg"></div></div>`);
+  $('#bkTpl').onclick = () => {
+    const wb = XLSX.utils.book_new(), act = products.filter(p => p.is_active);
+    sps.forEach(l => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product Code', 'Product Name', 'Sales Data']].concat(act.map(p => [p.sku || '', p.name, 0]))), l.name.replace(/[\\\/?*\[\]:]/g, '').slice(0, 31)));
+    XLSX.writeFile(wb, 'Daily_Sales_All_Outlets_Template.xlsx');
+  };
+  $('#bkGo').onclick = async () => {
+    const msg = $('#bkMsg'), btn = $('#bkGo'); note(msg, '');
+    try {
+      const date = $('#bkDate').value, f = $('#bkFile').files[0];
+      if (!date) return note(msg, 'Please choose the sales date.', 'warn');
+      if (date > today()) return note(msg, 'The date cannot be in the future.', 'warn');
+      if (!f) return note(msg, 'Please choose the workbook first.', 'warn');
+      btn.disabled = true;
+      const wb = XLSX.read(await f.arrayBuffer(), {type: 'array'});
+      const bySku = new Map(products.filter(p => p.sku).map(p => [norm(p.sku), p])), byName = productMap();
+      const spMatch = sn => {
+        const n = norm(sn), strip = x => x.replace(/ outlet$/, '');
+        let c = sps.filter(l => norm(l.name) === n);
+        if (!c.length) c = sps.filter(l => strip(norm(l.name)) === strip(n) || norm(l.name).startsWith(n) || n.startsWith(norm(l.name)));
+        return c.length === 1 ? c[0] : null;
+      };
+      const perSp = new Map(), errs = [], unmatchedSheets = [], unmatchedProd = new Set();
+      for (const sn of wb.SheetNames) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval: '', raw: false});
+        if (!rows.length) continue;
+        const sp = spMatch(sn); if (!sp) { unmatchedSheets.push(sn); continue; }
+        if (perSp.has(sp.id)) { errs.push(`Two sheets match "${sp.name}" (${sn}).`); continue; }
+        const m = new Map();
+        rows.forEach((r, i) => {
+          const code = String(pick(r, 'Product Code', 'Code')).trim(), name = String(pick(r, 'Product Name', 'Product')).trim();
+          const raw = String(pick(r, 'Sales Data', 'Sales Qty', 'Qty', 'Quantity')).trim();
+          if (!code && !name) return;
+          const q = raw === '' ? 0 : num(raw);
+          if (!Number.isFinite(q) || q < 0) return errs.push(`${sn}, row ${i + 2}: invalid sales quantity for "${name || code}".`);
+          const prod = (code && bySku.get(norm(code))) || byName.get(norm(name));
+          if (!prod) return unmatchedProd.add(`${name || code} (${sn})`);
+          m.set(prod.id, (m.get(prod.id) || 0) + q);
+        });
+        perSp.set(sp.id, m);
+      }
+      const problems = [];
+      if (unmatchedSheets.length) problems.push(`<b>Sheets that do not match any sales point (${unmatchedSheets.length}):</b><br>${unmatchedSheets.map(esc).join('<br>')}`);
+      if (unmatchedProd.size) problems.push(`<b>Products not found in the product master (${unmatchedProd.size}):</b><br>${[...unmatchedProd].slice(0, 20).map(esc).join('<br>')}${unmatchedProd.size > 20 ? '<br>…' : ''}`);
+      if (errs.length) problems.push(`<b>Errors:</b><br>${errs.slice(0, 15).map(esc).join('<br>')}`);
+      if (problems.length) return note(msg, problems.join('<br><br>'), 'err');
+      if (!perSp.size) return note(msg, 'No sales point sheets with data were found in this file.', 'warn');
+      const act = products.filter(p => p.is_active);
+      const lines = sps.map(l => { const m = perSp.get(l.id); return {l, m, n: m ? [...m.values()].filter(x => x > 0).length : 0, u: m ? [...m.values()].reduce((a, b) => a + b, 0) : 0}; });
+      msg.innerHTML = `<div class="note info"><b>Check before saving — ${esc(date)}</b></div><div class="tablewrap"><table><thead><tr><th>Sales point</th><th>Source</th><th class="n">Products sold</th><th class="n">Units sold</th></tr></thead><tbody>
+        ${lines.map(x => `<tr><td>${esc(x.l.name)}</td><td>${x.m ? 'From file' : '<span class="muted">No sheet → all 0</span>'}</td><td class="n">${x.n}</td><td class="n">${fmt(x.u)}</td></tr>`).join('')}</tbody></table></div>
+        <div class="row" style="margin-top:12px"><button class="btn" id="bkOk">Confirm &amp; Save</button></div>`;
+      $('#bkOk').onclick = async () => {
+        const b2 = $('#bkOk'); b2.disabled = true;
+        try {
+          const out = [];
+          sps.forEach(l => { const m = perSp.get(l.id) || new Map(); const ids = new Set(act.map(p => p.id)); m.forEach((_, id) => ids.add(id));
+            ids.forEach(id => out.push({location_id: l.id, product_id: id, sale_date: date, qty: m.get(id) || 0})); });
+          for (let i = 0; i < out.length; i += 500) {
+            const {error} = await db.from('daily_sales').upsert(out.slice(i, i + 500), {onConflict: 'location_id,product_id,sale_date'});
+            if (error) throw error;
+          }
+          toast(`Sales saved for ${date}.`); note(msg, `Saved ${out.length} rows for ${sps.length} sales points on ${esc(date)}. Sales points or products not in the file were saved as 0.`, 'ok');
+          await showTab('sales');
+        } catch (e) { note(msg, esc(e.message || e), 'err'); b2.disabled = false; }
+      };
+    } catch (e) { note(msg, esc(e.message || e), 'err'); }
+    finally { btn.disabled = false; }
+  };
 }
 
 // ================================ MASTER DATA ================================
