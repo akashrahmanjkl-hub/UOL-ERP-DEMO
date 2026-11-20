@@ -60,7 +60,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 tr.total td{font-weight:700;background:#f7faf8}
 .badge{display:inline-block;border-radius:999px;padding:2px 10px;font-weight:700;font-size:12px}
 .b-give{background:var(--green-soft);color:#166534}.b-partial{background:var(--amber-soft);color:var(--amber)}
-.b-dispatched{background:var(--blue-soft);color:var(--blue)}.b-cancelled{background:#e5e7eb;color:#374151}
+.b-posted{background:var(--green-soft,#dcfce7);color:#166534}.b-in_transit{background:var(--blue-soft);color:var(--blue)}.b-dispatched{background:var(--blue-soft);color:var(--blue)}.b-cancelled{background:#e5e7eb;color:#374151}
 .b-do_not_give{background:var(--red-soft);color:var(--red)}.b-decided{background:var(--blue-soft);color:var(--blue)}.b-received{background:var(--green-soft);color:#166534}
 .note{border-radius:10px;padding:10px 12px;margin:10px 0}
 .note.info{background:var(--blue-soft);color:#075985}.note.warn{background:var(--amber-soft);color:#78350f}
@@ -236,7 +236,7 @@ async function realStart() {
   if (!$('#whoami')) $('.chips').insertAdjacentHTML('beforeend', `<span class="chip db" id="whoami">${esc(session.name)} · ${esc(session.role.replace(/_/g, ' '))}</span><button class="btn alt" id="soBtn">Sign out</button>`);
   $('#soBtn').onclick = signOut;
   buildTabs();
-  const visible = TABS.filter(t => t.central ? isCentral() : true);
+  const visible = TABS.filter(t => tabOk(t));
   if (!visible.some(t => t.id === currentTab)) currentTab = 'dashboard';
   showTab(currentTab);
 }
@@ -280,11 +280,12 @@ async function applySession() {
     if (p.error) throw p.error; products = p.data;
   } catch (e) { toast(e.message, 'err'); return; }
   buildTabs();
-  const visible = TABS.filter(t => t.central ? isCentral() : true);
+  const visible = TABS.filter(t => tabOk(t));
   if (!visible.some(t => t.id === currentTab)) currentTab = 'dashboard';
   showTab(currentTab);
 }
 
+const tabOk = t => t.admin ? ['super_admin', 'admin'].includes(session.role) : tabOk(t);
 const TABS = [
   {id: 'dashboard', label: 'Dashboard', render: renderDashboard},
   {id: 'stock', label: 'Live Stock', render: renderStock},
@@ -293,11 +294,13 @@ const TABS = [
   {id: 'indent', label: 'Indent Management', central: true, render: renderIndent},
   {id: 'plan', label: 'Distribution & Forecasting', central: true, render: renderPlan},
   {id: 'challan', label: 'Delivery Challan', render: renderChallan},
-  {id: 'master', label: 'Master Data', central: true, render: renderMaster}
+  {id: 'stockops', label: 'Stock Operations', render: renderStockOps},
+  {id: 'master', label: 'Master Data', central: true, render: renderMaster},
+  {id: 'audit', label: 'Audit Trail', admin: true, render: renderAudit}
 ];
 function buildTabs() {
-  $('#tabs').innerHTML = TABS.filter(t => t.central ? isCentral() : true)
-    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚'})[t.id] || '•'}</i>${t.label}</button>`).join('');
+  $('#tabs').innerHTML = TABS.filter(t => tabOk(t))
+    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',stockops:'🔄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
@@ -558,6 +561,7 @@ async function renderOpening(v) {
       const rows = [...agg].map(([pid, qty]) => ({location_id: locId, product_id: pid, entry_date: $('#opDate').value, entry_type: 'opening', qty}));
       for (let i = 0; i < rows.length; i += 500) { const {error} = await db.from('stock_ledger').insert(rows.slice(i, i + 500)); if (error) throw error; }
       const up = await db.from('locations').update({opening_date: $('#opDate').value}).eq('id', locId).select();
+      audit('upload', 'stock_ledger', `Opening stock: ${rows.length} products at ${locName(locId)} (date ${$('#opDate').value})`, {location: locName(locId), products: rows.length});
       toast(`Opening stock saved for ${rows.length} products.`);
       note(msg, `Saved ${rows.length} products.${up.data && up.data.length ? '' : ' The opening date could not be saved with this role; log in as Super Admin or Admin to set it.'}`, 'ok');
       await status();
@@ -690,6 +694,7 @@ function bulkSales(v, sps) {
             const {error} = await db.from('daily_sales').upsert(out.slice(i, i + 500), {onConflict: 'location_id,product_id,sale_date'});
             if (error) throw error;
           }
+          audit('bulk_upload', 'daily_sales', `Bulk sales for ${date}: ${out.length} rows, ${perSp.size} sales point sheet(s)`, {date, rows: out.length, sheets: perSp.size});
           toast(`Sales saved for ${date}.`); note(msg, `Saved ${out.length} rows for ${sps.length} sales points on ${esc(date)}. Sales points or products not in the file were saved as 0.`, 'ok');
           await showTab('sales');
         } catch (e) { note(msg, esc(e.message || e), 'err'); b2.disabled = false; }
@@ -764,6 +769,7 @@ function bulkIndent(v, sps) {
             const {error} = await db.rpc('create_indent', {p_location_id: x.l.id, p_indent_date: date, p_odoo_ref: null, p_lines: x.items.map(([id, q]) => ({product_name: prodName(id), qty: q}))});
             if (error) throw new Error(`${x.l.name}: ${error.message}`); done++;
           }
+          audit('bulk_upload', 'indents', `Bulk indents for ${date}: ${done} sales point(s)`, {date, indents: done});
           toast(`${done} indents saved.`); await showTab('indent');
         } catch (e) { note(msg, esc(`${e.message || e} (${done} indents were saved before this error.)`), 'err'); b2.disabled = false; }
       };
@@ -945,7 +951,197 @@ function printChallan(c, lines) {
   w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
 }
 
+// ============================ STOCK OPERATIONS (adjust / damage / return / transfer / count) ============================
+let opTab = null;
+const DOC_TYPES = {adjustment: 'Adjustment', damage: 'Damage', return: 'Return', transfer: 'Transfer', count: 'Physical Count'};
+const DOC_STATUS = {posted: 'Posted', in_transit: 'In transit', received: 'Received', cancelled: 'Cancelled'};
+const REASONS = {
+  adjustment: ['Stock correction', 'Found extra stock', 'Wrong entry correction', 'Other'],
+  damage: ['Damaged', 'Expired', 'Lost / theft', 'Sample / gift', 'Other'],
+  return: ['Excess stock', 'Near expiry', 'Damaged / defective', 'Wrong item delivered', 'Other'],
+  transfer: ['Rebalancing between warehouses', 'Space / closing', 'Other']
+};
+function lineEditor(el, qtyLabel) {
+  el.innerHTML = `<datalist id="opProds">${products.filter(p => p.is_active).map(p => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>
+    <div class="row" style="margin:6px 0"><button class="btn alt" type="button" id="leAdd">+ Add line</button><div><label>Or upload Excel (Product Code, Product Name, <span class="leQ">${esc(qtyLabel)}</span>)</label><input type="file" id="leFile" accept=".xlsx,.xls,.csv"></div></div>
+    <div class="tablewrap"><table style="min-width:0"><thead><tr><th>Product (type to search)</th><th class="n leQ">${esc(qtyLabel)}</th><th></th></tr></thead><tbody id="leBody"></tbody></table></div>`;
+  const add = (name = '', qty = '') => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input list="opProds" class="lp" value="${esc(name)}" style="min-width:260px;width:100%"></td><td class="n"><input type="number" step="any" class="lq" value="${esc(qty)}" style="min-width:0;width:110px;text-align:right"></td><td><button class="mini d" type="button">✕</button></td>`;
+    tr.querySelector('button').onclick = () => tr.remove(); $('#leBody').appendChild(tr);
+  };
+  add(); $('#leAdd').onclick = () => add();
+  $('#leFile').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const bySku = new Map(products.filter(p => p.sku).map(p => [norm(p.sku), p])), byName = productMap();
+    (await readSheet(f)).forEach(r => {
+      const code = String(pick(r, 'Product Code', 'Code')).trim(), name = String(pick(r, 'Product Name', 'Product')).trim(), q = String(pick(r, qtyLabel, 'Qty', 'Quantity')).trim();
+      if (!code && !name) return; const pr = (code && bySku.get(norm(code))) || byName.get(norm(name)); add(pr ? pr.name : name, q);
+    });
+    [...$('#leBody').children].filter(tr => !tr.querySelector('.lp').value && !tr.querySelector('.lq').value).forEach(tr => tr.remove()); e.target.value = '';
+  };
+  return {
+    setLabel: t => el.querySelectorAll('.leQ').forEach(x => x.textContent = t),
+    get() {
+      const byName = productMap(), bySku = new Map(products.filter(p => p.sku).map(p => [norm(p.sku), p])), lines = [], bad = [];
+      el.querySelectorAll('#leBody tr').forEach(tr => {
+        const n = tr.querySelector('.lp').value.trim(), q = tr.querySelector('.lq').value.trim(); if (!n && !q) return;
+        const pr = byName.get(norm(n)) || bySku.get(norm(n)), qty = Number(q);
+        if (!pr) return bad.push(`Unknown product: "${n}"`); if (!q || !Number.isFinite(qty) || qty === 0) return bad.push(`Invalid quantity for "${n}"`);
+        lines.push({product_id: pr.id, qty});
+      });
+      if (bad.length) throw new Error(bad.slice(0, 8).join('; ')); if (!lines.length) throw new Error('Add at least one product line.'); return lines;
+    }
+  };
+}
+const optList = (arr, sel) => arr.map(l => `<option value="${l.id}" ${l.id === sel ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
+async function renderStockOps(v) {
+  const central = isCentral(), whs = allLocations.filter(l => l.type === 'warehouse'), sps = allLocations.filter(l => l.type === 'sales_point');
+  const tabs = [['adj', central ? 'Adjust / Damage' : 'Report Damage'], ['ret', 'Return'], ...(central ? [['trf', 'Transfer'], ['cnt', 'Physical Count']] : []), ['docs', 'Documents']];
+  if (!opTab || !tabs.some(t => t[0] === opTab)) opTab = tabs[0][0];
+  v.innerHTML = `<div class="card"><h2>Stock Operations</h2><p class="sub">Every stock change is recorded as a numbered document with a reason, and appears in the Audit Trail. Stock can never go below zero.</p>
+    <div class="row">${tabs.map(t => `<button class="btn ${t[0] === opTab ? '' : 'alt'}" data-t="${t[0]}">${t[1]}</button>`).join('')}</div></div><div id="opBody"></div>`;
+  v.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { opTab = b.dataset.t; showTab('stockops'); });
+  const body = $('#opBody'), today0 = today();
+  const submit = (msg, btn, fn, label) => async () => { note(msg, ''); btn.disabled = true;
+    try { const no = await fn(); toast(`${label} ${no}`); opTab = 'docs'; await showTab('stockops'); } catch (e) { note(msg, esc(e.message || e), 'err'); btn.disabled = false; } };
+  const dateF = `<div><label>Date</label><input type="date" id="opD" value="${today0}" max="${today0}"></div>`;
+  const reasonF = (t, sel) => `<div><label>Reason</label><select id="opR">${REASONS[t].map(r => `<option>${r}</option>`).join('')}</select></div>`;
+  if (opTab === 'adj') {
+    const locs = central ? locations : locations.filter(l => l.id === session.locationId);
+    body.innerHTML = `<div class="card"><h3>${central ? 'Stock Adjustment / Damage' : 'Report Damage'}</h3>
+      <div class="row"><div><label>Location</label><select id="opL">${optList(locs, session.locationId)}</select></div>
+      <div><label>Type</label><select id="opT">${central ? '<option value="adjustment">Adjustment (+ / −)</option>' : ''}<option value="damage">Damage / loss</option></select></div>${dateF}${reasonF(central ? 'adjustment' : 'damage')}
+      <div><label>Note (optional)</label><input type="text" id="opN"></div></div><div id="opLines"></div><div id="opM"></div><button class="btn" id="opGo" style="margin-top:12px">Post</button></div>`;
+    const ed = lineEditor($('#opLines'), central ? 'Adjust Qty (+/−)' : 'Damaged Qty');
+    $('#opT').onchange = () => { const t = $('#opT').value; $('#opR').innerHTML = REASONS[t].map(r => `<option>${r}</option>`).join(''); ed.setLabel(t === 'damage' ? 'Damaged Qty' : 'Adjust Qty (+/−)'); };
+    $('#opGo').onclick = () => submit($('#opM'), $('#opGo'), async () => {
+      const lines = ed.get(), t = $('#opT').value;
+      if (!confirm(`${t === 'damage' ? 'Remove damaged stock' : 'Post adjustment'} for ${lines.length} product(s) at ${locName($('#opL').value)}?`)) throw new Error('Cancelled.');
+      const {data, error} = await db.rpc('post_stock_adjustment', {p_type: t, p_location: $('#opL').value, p_date: $('#opD').value, p_reason: $('#opR').value, p_note: $('#opN').value.trim() || null, p_lines: lines});
+      if (error) throw error; return data; }, 'Posted')();
+  } else if (opTab === 'ret' || opTab === 'trf') {
+    const ret = opTab === 'ret', from = ret ? (central ? sps : sps.filter(l => l.id === session.locationId)) : whs;
+    body.innerHTML = `<div class="card"><h3>${ret ? 'Return: sales point → warehouse' : 'Transfer: warehouse → warehouse'}</h3><p class="sub">Stock leaves the sender now and is added at the destination only when it is received (see Documents).</p>
+      <div class="row"><div><label>From</label><select id="opF">${optList(from, session.locationId)}</select></div><div><label>To (warehouse)</label><select id="opTo">${optList(whs)}</select></div>${dateF}${reasonF(ret ? 'return' : 'transfer')}
+      <div><label>Note (optional)</label><input type="text" id="opN"></div></div><div id="opLines"></div><div id="opM"></div><button class="btn" id="opGo" style="margin-top:12px">${ret ? 'Send Return' : 'Send Transfer'}</button></div>`;
+    const ed = lineEditor($('#opLines'), ret ? 'Return Qty' : 'Transfer Qty');
+    $('#opGo').onclick = () => submit($('#opM'), $('#opGo'), async () => {
+      const lines = ed.get(); if (!confirm(`Send ${lines.length} product(s) from ${locName($('#opF').value)} to ${locName($('#opTo').value)}?`)) throw new Error('Cancelled.');
+      const {data, error} = await db.rpc('create_stock_transfer', {p_type: ret ? 'return' : 'transfer', p_from: $('#opF').value, p_to: $('#opTo').value, p_date: $('#opD').value, p_reason: $('#opR').value, p_note: $('#opN').value.trim() || null, p_lines: lines});
+      if (error) throw error; return data; }, 'Sent')();
+  } else if (opTab === 'cnt') {
+    body.innerHTML = `<div class="card"><h3>Physical Stock Count</h3><p class="sub">1) Download the count sheet for a location. 2) Fill <b>Counted Qty</b> after counting (leave blank for products you did not count). 3) Upload it, check the differences, and post. The stock is corrected to the counted quantity.</p>
+      <div class="row"><div><label>Location</label><select id="cnL">${optList(locations)}</select></div>${dateF}<div><label>Note (optional)</label><input type="text" id="opN"></div>
+      <button class="btn alt" id="cnDl">Download Count Sheet</button></div>
+      <div class="row" style="margin-top:12px"><div><label>Filled count sheet (.xlsx)</label><input type="file" id="cnFile" accept=".xlsx,.xls,.csv"></div><button class="btn" id="cnGo">Check Counts</button></div><div id="opM"></div></div>`;
+    $('#cnDl').onclick = async () => {
+      const loc = $('#cnL').value, ls = await liveStock([loc]), m = new Map(ls.map(r => [r.product_id, Number(r.live_qty)]));
+      downloadSheet(`Count_Sheet_${locName(loc)}.xlsx`, [['Product Code', 'Product Name', 'System Qty', 'Counted Qty']].concat(products.filter(p => p.is_active).map(p => [p.sku || '', p.name, m.get(p.id) || 0, ''])));
+    };
+    $('#cnGo').onclick = async () => {
+      const msg = $('#opM'), btn = $('#cnGo'); note(msg, '');
+      try {
+        const f = $('#cnFile').files[0]; if (!f) return note(msg, 'Please choose the filled count sheet.', 'warn'); btn.disabled = true;
+        const loc = $('#cnL').value, bySku = new Map(products.filter(p => p.sku).map(p => [norm(p.sku), p])), byName = productMap(), counted = new Map(), bad = [];
+        (await readSheet(f)).forEach((r, i) => {
+          const code = String(pick(r, 'Product Code', 'Code')).trim(), name = String(pick(r, 'Product Name', 'Product')).trim(), raw = String(pick(r, 'Counted Qty', 'Counted', 'Count')).trim();
+          if (raw === '' || (!code && !name)) return; const q = num(raw), pr = (code && bySku.get(norm(code))) || byName.get(norm(name));
+          if (!pr) return bad.push(`Row ${i + 2}: unknown product "${name || code}"`); if (!Number.isFinite(q) || q < 0) return bad.push(`Row ${i + 2}: invalid counted qty for "${pr.name}"`);
+          counted.set(pr.id, q);
+        });
+        if (bad.length) return note(msg, bad.slice(0, 15).map(esc).join('<br>'), 'err'); if (!counted.size) return note(msg, 'No counted quantities found (the Counted Qty column is empty).', 'warn');
+        const sys = new Map((await liveStock([loc])).map(r => [r.product_id, Number(r.live_qty)]));
+        const rows = [...counted].map(([id, q]) => ({id, q, s: sys.get(id) || 0, d: q - (sys.get(id) || 0)})).sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+        const diffs = rows.filter(r => r.d !== 0);
+        msg.innerHTML = `<div class="note info"><b>${esc(locName(loc))}: ${rows.length} products counted, ${diffs.length} with a difference (net ${fmt(diffs.reduce((a, r) => a + r.d, 0))} units).</b></div>
+          <div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">System</th><th class="n">Counted</th><th class="n">Difference</th></tr></thead><tbody>
+          ${rows.slice(0, 300).map(r => `<tr><td>${esc(prodName(r.id))}</td><td class="n">${fmt(r.s)}</td><td class="n">${fmt(r.q)}</td><td class="n" style="color:${r.d < 0 ? '#b91c1c' : r.d > 0 ? '#166534' : 'inherit'}"><b>${r.d > 0 ? '+' : ''}${fmt(r.d)}</b></td></tr>`).join('')}</tbody></table></div>
+          <div class="row" style="margin-top:12px"><button class="btn" id="cnOk">Confirm &amp; Post Count</button></div>`;
+        $('#cnOk').onclick = submit(msg, $('#cnOk'), async () => {
+          const {data, error} = await db.rpc('post_stock_count', {p_location: loc, p_date: $('#opD').value, p_note: $('#opN').value.trim() || null, p_lines: [...counted].map(([product_id, counted_qty]) => ({product_id, counted_qty}))});
+          if (error) throw error; return data; }, 'Count posted')
+      } catch (e) { note(msg, esc(e.message || e), 'err'); } finally { btn.disabled = false; }
+    };
+  } else {
+    const q = await db.from('stock_docs').select('*').order('created_at', {ascending: false}).limit(200);
+    if (q.error) throw new Error(q.error.code === '42P01' ? 'Run uol_step3_stock_ops_audit.sql in the Supabase SQL Editor first.' : q.error.message);
+    const ds = q.data, ids = ds.map(d => d.id), byD = new Map();
+    (ids.length ? await fetchAll((a, b) => db.from('stock_doc_lines').select('doc_id,product_id,qty,system_qty,counted_qty,received_qty').in('doc_id', ids).order('id').range(a, b)) : [])
+      .forEach(l => { if (!byD.has(l.doc_id)) byD.set(l.doc_id, []); byD.get(l.doc_id).push(l); });
+    body.innerHTML = `<div class="card"><div class="row"><div><label>Type</label><select id="dcT"><option value="">All</option>${Object.entries(DOC_TYPES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>
+      <div><label>Status</label><select id="dcS"><option value="">All</option><option value="in_transit">In transit</option>${['posted', 'received', 'cancelled'].map(k => `<option value="${k}">${DOC_STATUS[k]}</option>`).join('')}</select></div></div></div><div id="dcL"></div>`;
+    const canRecv = d => d.status === 'in_transit' && (isCentral() || session.locationId === d.to_location_id);
+    const draw = () => {
+      const list = ds.filter(d => (!$('#dcT').value || d.doc_type === $('#dcT').value) && (!$('#dcS').value || d.status === $('#dcS').value));
+      $('#dcL').innerHTML = `<div class="card"><div class="tablewrap"><table><thead><tr><th>Document</th><th>Date</th><th>Type</th><th>Location / From</th><th>To</th><th>Status</th><th class="n">Products</th><th class="n">Net / Qty</th><th>Reason</th><th></th></tr></thead><tbody>
+      ${list.map(d => { const ls = byD.get(d.id) || [], tot = ls.reduce((a, l) => a + Number(l.qty), 0); return `<tr><td><b>${esc(d.doc_no)}</b></td><td>${d.doc_date}</td><td>${DOC_TYPES[d.doc_type]}</td><td>${esc(locName(d.location_id))}</td><td>${d.to_location_id ? esc(locName(d.to_location_id)) : ''}</td>
+        <td><span class="badge b-${d.status}">${DOC_STATUS[d.status]}</span></td><td class="n">${ls.length}</td><td class="n">${tot > 0 && ['adjustment', 'count'].includes(d.doc_type) ? '+' : ''}${fmt(tot)}</td><td>${esc(d.reason || '')}</td>
+        <td style="white-space:nowrap"><button class="mini" data-v="${d.id}">${canRecv(d) ? 'Receive' : 'View'}</button>${d.status === 'in_transit' && (isCentral() || session.locationId === d.location_id) ? `<button class="mini d" data-c="${d.id}">Cancel</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="10" class="muted">No documents found.</td></tr>'}
+      </tbody></table></div></div>`;
+      $('#dcL').querySelectorAll('[data-v]').forEach(b => b.onclick = () => docDialog(ds.find(d => d.id === b.dataset.v), byD.get(b.dataset.v) || [], canRecv));
+      $('#dcL').querySelectorAll('[data-c]').forEach(b => b.onclick = async () => {
+        const d = ds.find(x => x.id === b.dataset.c); if (!confirm(`Cancel ${d.doc_no}? The stock goes back to ${locName(d.location_id)}.`)) return;
+        const {error} = await db.rpc('cancel_stock_doc', {p_doc: d.id}); if (error) return toast(error.message, 'err'); toast('Cancelled; stock returned.'); await showTab('stockops');
+      });
+    };
+    $('#dcT').onchange = draw; $('#dcS').onchange = draw; draw();
+  }
+}
+function docDialog(d, lines, canRecv) {
+  const open = canRecv(d), isCount = d.doc_type === 'count', isMove = ['transfer', 'return'].includes(d.doc_type);
+  lines = lines.slice().sort((a, b) => prodName(a.product_id).localeCompare(prodName(b.product_id)));
+  const head = isCount ? '<th class="n">System</th><th class="n">Counted</th><th class="n">Difference</th>' : isMove ? `<th class="n">Sent</th><th class="n">${open ? 'Qty received' : 'Received'}</th><th class="n">Difference</th>` : '<th class="n">Change</th>';
+  const ov = document.createElement('div'); ov.id = 'ov';
+  ov.innerHTML = `<div class="box" style="width:min(860px,96vw)"><h3>${esc(d.doc_no)} — ${DOC_TYPES[d.doc_type]}</h3>
+    <p class="sub">${esc(locName(d.location_id))}${d.to_location_id ? ' → ' + esc(locName(d.to_location_id)) : ''} · ${d.doc_date} · ${DOC_STATUS[d.status]}${d.reason ? ' · ' + esc(d.reason) : ''}${d.note ? ' · ' + esc(d.note) : ''}</p>
+    <div class="tablewrap"><table style="min-width:0"><thead><tr><th>Product</th>${head}</tr></thead><tbody>
+    ${lines.map(l => `<tr><td>${esc(prodName(l.product_id))}</td>${isCount ? `<td class="n">${fmt(l.system_qty)}</td><td class="n">${fmt(l.counted_qty)}</td><td class="n">${fmt(l.qty)}</td>`
+      : isMove ? `<td class="n">${fmt(l.qty)}</td><td class="n">${open ? `<input type="number" min="0" step="any" data-pid="${l.product_id}" data-d="${l.qty}" value="${l.qty}" style="min-width:0;width:90px;text-align:right">` : (l.received_qty == null ? '' : fmt(l.received_qty))}</td><td class="n" data-diff="${l.product_id}">${!open && l.received_qty != null ? fmt(Number(l.received_qty) - Number(l.qty)) : '0'}</td>` : `<td class="n">${fmt(l.qty)}</td>`}</tr>`).join('')}
+    </tbody></table></div>${open ? '<label>Receiving note (optional)</label><input type="text" id="rcNote">' : ''}
+    <div id="ovM"></div><div class="row" style="margin-top:14px">${open ? '<button class="btn" id="rcOk">Confirm Receive</button>' : ''}<button class="btn alt" id="ovC">Close</button></div></div>`;
+  document.body.appendChild(ov); $('#ovC').onclick = () => ov.remove(); if (!open) return;
+  ov.querySelectorAll('input[data-pid]').forEach(i => i.oninput = () => { ov.querySelector(`[data-diff="${i.dataset.pid}"]`).textContent = fmt(Number(i.value) - Number(i.dataset.d)); });
+  $('#rcOk').onclick = async () => {
+    const vals = [...ov.querySelectorAll('input[data-pid]')].map(i => ({product_id: i.dataset.pid, qty: Number(i.value)}));
+    if (vals.some(x => !(x.qty >= 0))) return note($('#ovM'), 'Received quantities must be zero or greater.', 'err');
+    if (!confirm('Confirm receipt?')) return; $('#rcOk').disabled = true;
+    const {error} = await db.rpc('receive_stock_doc', {p_doc: d.id, p_lines: vals, p_note: $('#rcNote').value.trim() || null});
+    if (error) { note($('#ovM'), esc(error.message), 'err'); $('#rcOk').disabled = false; return; }
+    ov.remove(); toast('Received. Stock updated.'); await showTab('stockops');
+  };
+}
+
+// ============================ AUDIT TRAIL ============================
+async function renderAudit(v) {
+  const ents = ['', 'products', 'locations', 'profiles', 'app_settings', 'challans', 'stock_docs', 'daily_sales', 'indents', 'stock_ledger'];
+  v.innerHTML = `<div class="card"><h2>Audit Trail</h2><p class="sub">Who changed what and when. Entries cannot be edited or deleted. Visible to Super Admin and Admin only.</p>
+    <div class="row"><div><label>From</label><input type="date" id="auF" value="${addDays(today(), -7)}"></div><div><label>To</label><input type="date" id="auT" value="${today()}"></div>
+    <div><label>Area</label><select id="auE">${ents.map(e => `<option value="${e}">${e || 'All'}</option>`).join('')}</select></div>
+    <div><label>Search user / record</label><input type="text" id="auQ" placeholder="type to filter"></div>
+    <button class="btn" id="auGo">Show</button><button class="btn alt" id="auX">Export Excel</button></div></div><div id="auL"></div>`;
+  let rows = [];
+  const draw = () => {
+    const t = norm($('#auQ').value), list = rows.filter(r => !t || norm(r.actor).includes(t) || norm(r.summary).includes(t) || norm(r.action).includes(t));
+    $('#auL').innerHTML = `<div class="card"><h3>${list.length} entries${rows.length >= 1000 ? ' (latest 1000 — narrow the dates)' : ''}</h3><div class="tablewrap"><table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Area</th><th>Record / summary</th><th></th></tr></thead><tbody>
+      ${list.map((r, i) => `<tr><td style="white-space:nowrap">${new Date(r.at).toLocaleString('en-GB', {timeZone: TZ})}</td><td>${esc(r.actor || '')}</td><td>${esc(r.action)}</td><td>${esc(r.entity)}</td><td>${esc(r.summary || '')}</td><td>${r.details ? `<button class="mini" data-i="${i}">Details</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No entries.</td></tr>'}</tbody></table></div></div>`;
+    $('#auL').querySelectorAll('[data-i]').forEach(b => b.onclick = () => { const r = list[b.dataset.i], ov = document.createElement('div'); ov.id = 'ov';
+      ov.innerHTML = `<div class="box" style="width:min(720px,96vw)"><h3>${esc(r.action)} · ${esc(r.entity)}</h3><p class="sub">${esc(r.actor || '')} · ${new Date(r.at).toLocaleString('en-GB', {timeZone: TZ})}</p><pre style="white-space:pre-wrap;font-size:12px;background:#f3f4f6;padding:10px;border-radius:8px;max-height:50vh;overflow:auto">${esc(JSON.stringify(r.details, null, 2))}</pre><button class="btn alt" id="ovC">Close</button></div>`;
+      document.body.appendChild(ov); $('#ovC').onclick = () => ov.remove(); });
+  };
+  const load = async () => {
+    let q = db.from('audit_log').select('*').gte('at', $('#auF').value + 'T00:00:00+06:00').lte('at', $('#auT').value + 'T23:59:59+06:00').order('at', {ascending: false}).limit(1000);
+    if ($('#auE').value) q = q.eq('entity', $('#auE').value);
+    const r = await q; if (r.error) { toast(r.error.code === '42P01' ? 'Run uol_step3_stock_ops_audit.sql first.' : r.error.message, 'err'); return; }
+    rows = r.data; draw();
+  };
+  $('#auGo').onclick = load; $('#auQ').oninput = draw;
+  $('#auX').onclick = () => downloadSheet('Audit_Trail.xlsx', [['Time', 'User', 'Role', 'Action', 'Area', 'Summary', 'Details']].concat(rows.map(r => [new Date(r.at).toLocaleString('en-GB', {timeZone: TZ}), r.actor || '', r.role || '', r.action, r.entity, r.summary || '', r.details ? JSON.stringify(r.details) : ''])));
+  await load();
+}
+
 // ================================ MASTER DATA ================================
+const audit = (action, entity, summary, details) => { try { Promise.resolve(db.rpc('log_audit', {p_action: action, p_entity: entity, p_summary: summary, p_details: details || null})).catch(() => {}); } catch (e) {} };
 let mdTab = 'products';
 function openForm(title, fields, onSave) {
   const ov = document.createElement('div'); ov.id = 'ov';
