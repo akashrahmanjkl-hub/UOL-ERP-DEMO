@@ -802,7 +802,7 @@ async function renderPlan(v) {
   const sps = locations.filter(l => l.type === 'sales_point'), act = products.filter(p => p.is_active);
   const [ls, sl] = await Promise.all([liveStock(), salesSince(addDays(today(), -(WINDOW_DAYS - 1)))]);
   const tq = await db.from('v_in_transit').select('location_id,product_id,qty').limit(5000);
-  if (tq.error) throw new Error(tq.error.code === '42P01' ? 'Run uol_step2_challan_grn.sql in the Supabase SQL Editor first.' : tq.error.message);
+  if (tq.error) throw new Error(['42P01', 'PGRST205'].includes(tq.error.code) ? 'Run uol_step2_challan_grn.sql in the Supabase SQL Editor first.' : tq.error.message);
   const transit = new Map(tq.data.map(r => [r.location_id + '|' + r.product_id, Number(r.qty)]));
   const whs = locations.filter(l => l.type === 'warehouse');
   const stock = new Map(), wh = new Map(), whLoc = new Map();
@@ -891,7 +891,7 @@ async function renderPlan(v) {
 // ============================ DELIVERY CHALLAN / GRN ============================
 async function renderChallan(v) {
   const q = await db.from('challans').select('*').order('created_at', {ascending: false}).limit(150);
-  if (q.error) throw new Error(q.error.code === '42P01' ? 'Run uol_step2_challan_grn.sql in the Supabase SQL Editor first.' : q.error.message);
+  if (q.error) throw new Error(['42P01', 'PGRST205'].includes(q.error.code) ? 'Run uol_step2_challan_grn.sql in the Supabase SQL Editor first.' : q.error.message);
   const cs = q.data, ids = cs.map(c => c.id), byC = new Map();
   (ids.length ? await fetchAll((a, b) => db.from('challan_lines').select('challan_id,product_id,dispatch_qty,received_qty').in('challan_id', ids).order('id').range(a, b)) : [])
     .forEach(l => { if (!byC.has(l.challan_id)) byC.set(l.challan_id, []); byC.get(l.challan_id).push(l); });
@@ -1072,7 +1072,7 @@ async function stockOps(v, mode) {
     };
   } else {
     const q = await db.from('stock_docs').select('*').order('created_at', {ascending: false}).limit(200);
-    if (q.error) throw new Error(q.error.code === '42P01' ? 'Run uol_step3_stock_ops_audit.sql in the Supabase SQL Editor first.' : q.error.message);
+    if (q.error) throw new Error(['42P01', 'PGRST205'].includes(q.error.code) ? 'Run uol_step3_stock_ops_audit.sql in the Supabase SQL Editor first.' : q.error.message);
     const ds = q.data, ids = ds.map(d => d.id), byD = new Map();
     (ids.length ? await fetchAll((a, b) => db.from('stock_doc_lines').select('doc_id,product_id,qty,system_qty,counted_qty,received_qty').in('doc_id', ids).order('id').range(a, b)) : [])
       .forEach(l => { if (!byD.has(l.doc_id)) byD.set(l.doc_id, []); byD.get(l.doc_id).push(l); });
@@ -1139,7 +1139,7 @@ async function renderAudit(v) {
   const load = async () => {
     let q = db.from('audit_log').select('*').gte('at', $('#auF').value + 'T00:00:00+06:00').lte('at', $('#auT').value + 'T23:59:59+06:00').order('at', {ascending: false}).limit(1000);
     if ($('#auE').value) q = q.eq('entity', $('#auE').value);
-    const r = await q; if (r.error) { toast(r.error.code === '42P01' ? 'Run uol_step3_stock_ops_audit.sql first.' : r.error.message, 'err'); return; }
+    const r = await q; if (r.error) { toast(['42P01', 'PGRST205'].includes(r.error.code) ? 'Run uol_step3_stock_ops_audit.sql first.' : r.error.message, 'err'); return; }
     rows = r.data; draw();
   };
   $('#auGo').onclick = load; $('#auQ').oninput = draw;
