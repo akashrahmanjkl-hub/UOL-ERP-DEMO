@@ -287,14 +287,15 @@ async function applySession() {
 const TABS = [
   {id: 'dashboard', label: 'Dashboard', render: renderDashboard},
   {id: 'stock', label: 'Live Stock', render: renderStock},
-  {id: 'indent', label: 'Indent Management', central: true, render: renderIndent},
   {id: 'opening', label: 'Opening Stock', central: true, render: renderOpening},
   {id: 'sales', label: 'Daily Sales', render: renderSales},
+  {id: 'indent', label: 'Indent Management', central: true, render: renderIndent},
+  {id: 'plan', label: 'Distribution & Forecasting', central: true, render: renderPlan},
   {id: 'master', label: 'Master Data', central: true, render: renderMaster}
 ];
 function buildTabs() {
   $('#tabs').innerHTML = TABS.filter(t => t.central ? isCentral() : true)
-    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
+    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
@@ -433,6 +434,7 @@ async function renderIndent(v) {
     <div class="note info">Warehouse stock used for the decision is the merged live stock of: <b>${whs.map(l => esc(l.name)).join(', ') || 'no warehouse'}</b>.</div>
     <div id="inMsg"></div></div>
     <div id="inResult"></div><div id="inHistory"></div>`;
+  if (isCentral()) bulkIndent(v, sps);
   $('#inTpl').onclick = () => downloadSheet('Indent_Template.xlsx', [['Product Name', 'Indent Qty'], [products[0]?.name || 'Product name', 100]]);
   $('#inGo').onclick = async () => {
     const msg = $('#inMsg'), btn = $('#inGo'); note(msg, '');
@@ -693,6 +695,156 @@ function bulkSales(v, sps) {
     } catch (e) { note(msg, esc(e.message || e), 'err'); }
     finally { btn.disabled = false; }
   };
+}
+
+// ---------- shared: read a workbook with one sheet per sales point ----------
+async function readBulk(file, sps, qtyNames) {
+  const wb = XLSX.read(await file.arrayBuffer(), {type: 'array'});
+  const bySku = new Map(products.filter(p => p.sku).map(p => [norm(p.sku), p])), byName = productMap();
+  const strip = x => x.replace(/ outlet$/, '');
+  const spMatch = sn => { const n = norm(sn); let c = sps.filter(l => norm(l.name) === n);
+    if (!c.length) c = sps.filter(l => strip(norm(l.name)) === strip(n) || norm(l.name).startsWith(n) || n.startsWith(norm(l.name))); return c.length === 1 ? c[0] : null; };
+  const perSp = new Map(), errs = [], badSheets = [], badProd = new Set();
+  for (const sn of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval: '', raw: false}); if (!rows.length) continue;
+    const sp = spMatch(sn); if (!sp) { badSheets.push(sn); continue; }
+    if (perSp.has(sp.id)) { errs.push(`Two sheets match "${sp.name}" (${sn}).`); continue; }
+    const m = new Map();
+    rows.forEach((r, i) => {
+      const code = String(pick(r, 'Product Code', 'Code')).trim(), name = String(pick(r, 'Product Name', 'Product')).trim(), raw = String(pick(r, ...qtyNames)).trim();
+      if (!code && !name) return;
+      const q = raw === '' ? 0 : num(raw);
+      if (!Number.isFinite(q) || q < 0) return errs.push(`${sn}, row ${i + 2}: invalid quantity for "${name || code}".`);
+      const prod = (code && bySku.get(norm(code))) || byName.get(norm(name));
+      if (!prod) return badProd.add(`${name || code} (${sn})`);
+      m.set(prod.id, (m.get(prod.id) || 0) + q);
+    });
+    perSp.set(sp.id, m);
+  }
+  const problems = [];
+  if (badSheets.length) problems.push(`<b>Sheets that do not match any sales point (${badSheets.length}):</b><br>${badSheets.map(esc).join('<br>')}`);
+  if (badProd.size) problems.push(`<b>Products not found in the product master (${badProd.size}):</b><br>${[...badProd].slice(0, 20).map(esc).join('<br>')}${badProd.size > 20 ? '<br>…' : ''}`);
+  if (errs.length) problems.push(`<b>Errors:</b><br>${errs.slice(0, 15).map(esc).join('<br>')}`);
+  return {perSp, problems};
+}
+
+// ---------- bulk indent: one date, one workbook, one sheet per sales point ----------
+function bulkIndent(v, sps) {
+  v.insertAdjacentHTML('afterbegin', `<div class="card"><h2>Bulk Indent Upload — All Sales Points (one file)</h2>
+    <p class="sub">Pick the indent date and upload one Excel file with <b>one sheet per sales point</b> (sheet name = sales point name; columns <b>Product Code</b>, <b>Product Name</b>, <b>Indent Qty</b>). The indents are saved date-wise and location-wise; the supply decision is made in <b>Distribution &amp; Forecasting</b>.</p>
+    <div class="row"><div><label>Indent date</label><input type="date" id="biDate" value="${today()}"></div>
+    <div><label>Workbook (.xlsx)</label><input type="file" id="biFile" accept=".xlsx,.xls"></div>
+    <button class="btn" id="biGo">Check File</button><button class="btn alt" id="biTpl">Download Template</button></div><div id="biMsg"></div></div>`);
+  $('#biTpl').onclick = () => {
+    const wb = XLSX.utils.book_new(), act = products.filter(p => p.is_active);
+    sps.forEach(l => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product Code', 'Product Name', 'Indent Qty']].concat(act.map(p => [p.sku || '', p.name, 0]))), l.name.replace(/[\\\/?*\[\]:]/g, '').slice(0, 31)));
+    XLSX.writeFile(wb, 'Bulk_Indent_All_Outlets_Template.xlsx');
+  };
+  $('#biGo').onclick = async () => {
+    const msg = $('#biMsg'), btn = $('#biGo'); note(msg, '');
+    try {
+      const date = $('#biDate').value, f = $('#biFile').files[0];
+      if (!date) return note(msg, 'Please choose the indent date.', 'warn'); if (!f) return note(msg, 'Please choose the workbook first.', 'warn');
+      btn.disabled = true;
+      const {perSp, problems} = await readBulk(f, sps, ['Indent Qty', 'Qty', 'Quantity', 'Requested Qty']);
+      if (problems.length) return note(msg, problems.join('<br><br>'), 'err');
+      const lines = sps.map(l => { const m = perSp.get(l.id); const items = m ? [...m].filter(([, q]) => q > 0) : []; return {l, items, u: items.reduce((a, [, q]) => a + q, 0)}; });
+      if (!lines.some(x => x.items.length)) return note(msg, 'No indent quantities found in this file.', 'warn');
+      const ex = await db.from('indents').select('location_id,indent_no').eq('indent_date', date);
+      const dup = new Map((ex.data || []).map(r => [r.location_id, r.indent_no]));
+      msg.innerHTML = `<div class="note info"><b>Check before saving — indent date ${esc(date)}</b></div><div class="tablewrap"><table><thead><tr><th>Sales point</th><th>Source</th><th class="n">Products</th><th class="n">Total qty</th></tr></thead><tbody>
+        ${lines.map(x => `<tr><td>${esc(x.l.name)}</td><td>${x.items.length ? 'From file' + (dup.has(x.l.id) ? ` <span class="badge b-partial">already has ${esc(dup.get(x.l.id))} on this date</span>` : '') : '<span class="muted">No indent</span>'}</td><td class="n">${x.items.length}</td><td class="n">${fmt(x.u)}</td></tr>`).join('')}</tbody></table></div>
+        <div class="row" style="margin-top:12px"><button class="btn" id="biOk">Confirm &amp; Save</button></div>`;
+      $('#biOk').onclick = async () => {
+        const b2 = $('#biOk'); b2.disabled = true; let done = 0;
+        try {
+          for (const x of lines.filter(x => x.items.length)) {
+            const {error} = await db.rpc('create_indent', {p_location_id: x.l.id, p_indent_date: date, p_odoo_ref: null, p_lines: x.items.map(([id, q]) => ({product_name: prodName(id), qty: q}))});
+            if (error) throw new Error(`${x.l.name}: ${error.message}`); done++;
+          }
+          toast(`${done} indents saved.`); await showTab('indent');
+        } catch (e) { note(msg, esc(`${e.message || e} (${done} indents were saved before this error.)`), 'err'); b2.disabled = false; }
+      };
+    } catch (e) { note(msg, esc(e.message || e), 'err'); }
+    finally { btn.disabled = false; }
+  };
+}
+
+// ============================ DISTRIBUTION & FORECASTING ============================
+// Supply = ceil(avg daily sales x (delivery gap + buffer) - current stock); when warehouse stock is short it is shared by sales rate.
+function allocate(W, need, w) {
+  const give = need.map(() => 0); let rem = Math.floor(W), open = need.map((x, i) => x > 0 ? i : -1).filter(i => i >= 0);
+  while (rem > 0 && open.length) {
+    const totW = open.reduce((a, i) => a + w[i], 0), wt = i => totW > 0 ? w[i] : 1, tot = totW > 0 ? totW : open.length;
+    const closed = open.filter(i => rem * wt(i) / tot >= need[i] - give[i]);
+    if (closed.length) { closed.forEach(i => { const q = need[i] - give[i]; give[i] += q; rem -= q; }); open = open.filter(i => !closed.includes(i)); continue; }
+    open.forEach(i => { const q = Math.floor(rem * wt(i) / tot); give[i] += q; rem -= q; });
+    open.sort((a, b) => wt(b) - wt(a));
+    for (let j = 0; rem > 0 && j < 1e6; j++) { const i = open[j % open.length]; if (give[i] < need[i]) { give[i]++; rem--; } }
+    break;
+  }
+  return give;
+}
+async function renderPlan(v) {
+  const sps = locations.filter(l => l.type === 'sales_point'), act = products.filter(p => p.is_active);
+  const [ls, sl] = await Promise.all([liveStock(), salesSince(addDays(today(), -(WINDOW_DAYS - 1)))]);
+  const stock = new Map(), wh = new Map();
+  ls.forEach(r => { const q = Number(r.live_qty); if (r.location_type === 'warehouse') wh.set(r.product_id, (wh.get(r.product_id) || 0) + q); else stock.set(r.location_id + '|' + r.product_id, q); });
+  const sold = new Map(); sl.forEach(r => { const k = r.location_id + '|' + r.product_id; sold.set(k, (sold.get(k) || 0) + Number(r.qty)); });
+  const ind = await db.from('indents').select('id,location_id').order('indent_date', {ascending: false}).order('created_at', {ascending: false}).limit(2000);
+  if (ind.error) throw ind.error;
+  const latest = new Map(); ind.data.forEach(r => { if (!latest.has(r.location_id)) latest.set(r.location_id, r.id); });
+  const ids = [...latest.values()], idLoc = new Map([...latest].map(([l, i]) => [i, l])), req = new Map();
+  if (ids.length) (await fetchAll((a, b) => db.from('indent_lines').select('indent_id,product_id,requested_qty').in('indent_id', ids).order('id').range(a, b)))
+    .forEach(r => req.set(idLoc.get(r.indent_id) + '|' + r.product_id, Number(r.requested_qty)));
+  v.innerHTML = `<div class="card"><h2>Distribution &amp; Forecasting</h2>
+    <p class="sub">Supply for each sales point = Avg daily sales × (Delivery gap + Buffer) − Current stock. If the warehouse has less than the total demand, it is shared between sales points in proportion to their sales rate. Avg daily sales = last ${WINDOW_DAYS} days ÷ ${WINDOW_DAYS}.</p>
+    <div class="row"><div><label>View</label><select id="plView"><option value="">All sales points (summary)</option>${sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
+    <div><label>Delivery gap (days): <b id="gapV">3</b></label><input type="range" id="plGap" min="1" max="30" value="3"></div>
+    <div><label>Buffer (days): <b id="bufV">2</b></label><input type="range" id="plBuf" min="0" max="15" value="2"></div>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plCap"> Do not supply more than indent qty</label>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plHide" checked> Hide products with no supply</label>
+    <button class="btn alt" id="plExp">Export Plan (Excel)</button></div></div><div id="plOut"></div>`;
+  let cur = null;
+  const compute = () => {
+    const gap = +$('#plGap').value, buf = +$('#plBuf').value, cap = $('#plCap').checked;
+    return act.map(p => {
+      const rows = sps.map(sp => { const k = sp.id + '|' + p.id, avg = (sold.get(k) || 0) / WINDOW_DAYS, st = stock.get(k) || 0, rq = req.get(k) || 0;
+        let need = Math.max(0, Math.ceil(avg * (gap + buf) - st - 1e-9)); if (cap) need = Math.min(need, Math.ceil(rq)); return {sp, avg, st, rq, need}; });
+      const W = Math.max(0, wh.get(p.id) || 0), give = allocate(W, rows.map(r => r.need), rows.map(r => r.avg));
+      rows.forEach((r, i) => r.give = give[i]);
+      return {p, W, rows, need: rows.reduce((a, r) => a + r.need, 0), give: give.reduce((a, b) => a + b, 0)};
+    });
+  };
+  const draw = () => {
+    $('#gapV').textContent = $('#plGap').value; $('#bufV').textContent = $('#plBuf').value;
+    cur = compute(); const loc = $('#plView').value, hide = $('#plHide').checked, out = $('#plOut');
+    const short = cur.filter(x => x.give < x.need).length;
+    if (!loc) {
+      const list = hide ? cur.filter(x => x.need > 0) : cur;
+      out.innerHTML = `<div class="grid" style="margin-bottom:14px"><div class="tile"><small>Products to supply</small><b>${cur.filter(x => x.give > 0).length}</b></div><div class="tile"><small>Total units to supply</small><b>${fmt(cur.reduce((a, x) => a + x.give, 0))}</b></div><div class="tile"><small>Products short of warehouse stock</small><b>${short}</b></div></div>
+      <div class="card"><div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Warehouse stock</th><th class="n">Total need</th>${sps.map(l => `<th class="n">${esc(l.name)}</th>`).join('')}<th class="n">Total supply</th></tr></thead><tbody>
+      ${list.map(x => `<tr><td>${esc(x.p.name)}</td><td class="n">${fmt(x.W)}</td><td class="n">${fmt(x.need)}</td>${x.rows.map(r => `<td class="n">${r.give ? `<b>${fmt(r.give)}</b>` : '<span class="muted">0</span>'}${r.give < r.need ? `<br><small class="muted">of ${fmt(r.need)}</small>` : ''}</td>`).join('')}<td class="n"><b>${fmt(x.give)}</b></td></tr>`).join('') || `<tr><td colspan="${sps.length + 4}" class="muted">No supply needed with these settings.</td></tr>`}
+      <tr class="total"><td>Products supplied</td><td></td><td></td>${sps.map((l, i) => `<td class="n">${cur.filter(x => x.rows[i].give > 0).length}</td>`).join('')}<td></td></tr>
+      <tr class="total"><td>Units supplied</td><td></td><td></td>${sps.map((l, i) => `<td class="n">${fmt(cur.reduce((a, x) => a + x.rows[i].give, 0))}</td>`).join('')}<td class="n">${fmt(cur.reduce((a, x) => a + x.give, 0))}</td></tr>
+      </tbody></table></div></div>`;
+    } else {
+      const i = sps.findIndex(l => l.id === loc), list = cur.map(x => ({x, r: x.rows[i]})).filter(o => !hide || o.r.need > 0 || o.r.give > 0);
+      const stt = r => r.need === 0 ? ['Stock OK', 'b-received'] : r.give >= r.need ? ['Supply', 'b-give'] : r.give > 0 ? ['Partial', 'b-partial'] : ['No warehouse stock', 'b-do_not_give'];
+      out.innerHTML = `<div class="card"><h3>${esc(sps[i].name)}</h3><div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Current stock</th><th class="n">Avg daily sales</th><th class="n">Days cover</th><th class="n">Indent qty</th><th class="n">Need</th><th class="n">Warehouse stock</th><th class="n">Suggested supply</th><th>Status</th><th class="n">Days cover after delivery</th></tr></thead><tbody>
+      ${list.map(({x, r}) => { const s2 = stt(r); return `<tr><td>${esc(x.p.name)}</td><td class="n">${fmt(r.st)}</td><td class="n">${fmt(r.avg)}</td><td class="n">${r.avg > 0 ? fmt(r.st / r.avg) : '—'}</td><td class="n">${fmt(r.rq)}</td><td class="n">${fmt(r.need)}</td><td class="n">${fmt(x.W)}</td><td class="n"><b>${fmt(r.give)}</b></td><td><span class="badge ${s2[1]}">${s2[0]}</span></td><td class="n">${r.avg > 0 ? fmt((r.st + r.give) / r.avg) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="10" class="muted">No supply needed with these settings.</td></tr>'}
+      </tbody></table></div></div>`;
+    }
+  };
+  ['plView', 'plGap', 'plBuf', 'plCap', 'plHide'].forEach(id => $('#' + id).oninput = draw);
+  $('#plExp').onclick = () => {
+    const wb = XLSX.utils.book_new(), sheetName = n => n.replace(/[\\\/?*\[\]:]/g, '').slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product Code', 'Product Name', 'Warehouse Stock', 'Total Need'].concat(sps.map(l => l.name), ['Total Supply'])]
+      .concat(cur.filter(x => x.need > 0).map(x => [x.p.sku || '', x.p.name, x.W, x.need].concat(x.rows.map(r => r.give), [x.give])))), 'Summary');
+    sps.forEach((l, i) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product Code', 'Product Name', 'Supply Qty']].concat(cur.filter(x => x.rows[i].give > 0).map(x => [x.p.sku || '', x.p.name, x.rows[i].give]))), sheetName(l.name)));
+    XLSX.writeFile(wb, `Distribution_Plan_${today()}.xlsx`);
+  };
+  draw();
 }
 
 // ================================ MASTER DATA ================================
