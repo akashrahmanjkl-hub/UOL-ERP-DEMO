@@ -593,10 +593,10 @@ async function renderSales(v) {
   $('#slTpl').onclick = () => downloadSheet('Daily_Sales_Template.xlsx', [['Date', 'Product Name', 'Sales Qty'], [today(), products[0]?.name || 'Product name', 5]]);
   const recent = async () => {
     const loc = $('#slLoc').value;
-    const rows = await salesSince(addDays(today(), -13), loc);
+    const rows = await salesSince(addDays(today(), -(WINDOW_DAYS - 1)), loc);
     const byDate = new Map(); rows.forEach(r => { const o = byDate.get(r.sale_date) || {n: 0, u: 0}; o.n++; o.u += Number(r.qty); byDate.set(r.sale_date, o); });
     const dates = [...byDate.keys()].sort().reverse();
-    $('#slRecent').innerHTML = `<div class="card"><h3>Last 14 days — ${esc(locName(loc))}</h3><div class="tablewrap"><table><thead><tr><th>Date</th><th class="n">Products sold</th><th class="n">Units sold</th></tr></thead><tbody>
+    $('#slRecent').innerHTML = `<div class="card"><h3>Last 30 days — ${esc(locName(loc))}</h3><div class="tablewrap"><table><thead><tr><th>Date</th><th class="n">Products sold</th><th class="n">Units sold</th></tr></thead><tbody>
       ${dates.map(d => `<tr><td>${d}</td><td class="n">${byDate.get(d).n}</td><td class="n">${fmt(byDate.get(d).u)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">No sales uploaded for this period.</td></tr>'}
       </tbody></table></div></div>`;
   };
