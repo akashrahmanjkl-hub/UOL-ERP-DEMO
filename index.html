@@ -724,19 +724,26 @@ async function mdLocations(b) {
   const canEdit = ['super_admin', 'admin'].includes(session.role);
   const tname = t => t === 'warehouse' ? 'Warehouse' : 'Sales Point';
   b.innerHTML = `<div class="card"><h3>Import Locations</h3>
-    <p class="sub">Columns: <b>Code</b>, <b>Name</b>, <b>Type</b> (Warehouse / Sales Point), Opening Date (yyyy-mm-dd), Active (Yes/No). ${canEdit ? '' : '<b>Only Super Admin / Admin can change locations.</b>'}</p>
+    <p class="sub">Columns: <b>Location Name</b> (or Name), <b>Type</b> (Warehouse / Sales Point), Code (optional - generated automatically if blank, e.g. WH-04, SP-08), Active (Yes/No). ${canEdit ? '' : '<b>Only Super Admin / Admin can change locations.</b>'}</p>
     <div class="row"><div><label>Locations sheet (.xlsx / .csv)</label><input type="file" id="lcFile" accept=".xlsx,.xls,.csv"></div>
     <button class="btn" id="lcGo" ${canEdit ? '' : 'disabled'}>Import / Update</button><button class="btn alt" id="lcTpl">Download Template</button><button class="btn alt" id="lcExp">Export Current</button></div><div id="lcMsg"></div></div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0">${locs.length} locations</h3>
-    <div class="row"><button class="btn" id="lcAdd" ${canEdit ? '' : 'disabled'}>+ Add Location</button><button class="btn danger" id="lcDelAll" ${canEdit ? '' : 'disabled'}>Delete All</button></div></div><div class="tablewrap"><table><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Opening Date</th><th>Active</th><th></th></tr></thead><tbody>
-    ${locs.map(l => `<tr><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${tname(l.type)}</td><td>${l.opening_date || ''}</td><td>${l.is_active ? 'Yes' : 'No'}</td><td style="white-space:nowrap"><button class="mini" data-e="${l.id}" ${canEdit ? '' : 'disabled'}>Edit</button><button class="mini d" data-d="${l.id}" ${canEdit ? '' : 'disabled'}>Delete</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    <div class="row"><button class="btn" id="lcAdd" ${canEdit ? '' : 'disabled'}>+ Add Location</button><button class="btn danger" id="lcDelAll" ${canEdit ? '' : 'disabled'}>Delete All</button></div></div>
+    <div class="tablewrap"><table><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Active</th><th></th></tr></thead><tbody>
+    ${locs.map(l => `<tr><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${tname(l.type)}</td><td>${l.is_active ? 'Yes' : 'No'}</td><td style="white-space:nowrap"><button class="mini" data-e="${l.id}" ${canEdit ? '' : 'disabled'}>Edit</button><button class="mini d" data-d="${l.id}" ${canEdit ? '' : 'disabled'}>Delete</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  const nextCode = (type, used) => {
+    const pre = type === 'warehouse' ? 'WH' : 'SP';
+    let n = Math.max(0, ...[...used].filter(c => c.startsWith(pre + '-')).map(c => parseInt(c.slice(3), 10) || 0)) + 1;
+    return `${pre}-${String(n).padStart(2, '0')}`;
+  };
   const after = async () => { await refreshLocations(); await applySession(); };
   const lForm = (title, l) => openForm(title, [
-    {k: 'code', label: 'Code', value: l?.code}, {k: 'name', label: 'Name', value: l?.name},
+    {k: 'code', label: l ? 'Code' : 'Code (leave blank to auto-generate)', value: l?.code}, {k: 'name', label: 'Name', value: l?.name},
     l ? {k: 'type', label: 'Type (cannot be changed)', value: tname(l.type), readonly: true} : {k: 'type', label: 'Type', value: 'warehouse', options: [['warehouse', 'Warehouse'], ['sales_point', 'Sales Point']]},
-    {k: 'od', label: 'Opening Date', type: 'date', value: l?.opening_date}, {k: 'act', label: 'Active', value: l ? (l.is_active ? 'yes' : 'no') : 'yes', options: [['yes', 'Yes'], ['no', 'No']]}], async v => {
-    if (!v.code || !v.name) throw new Error('Code and Name are required.');
-    const row = {code: v.code.toUpperCase(), name: v.name, opening_date: v.od || null, is_active: v.act === 'yes'};
+    {k: 'act', label: 'Active', value: l ? (l.is_active ? 'yes' : 'no') : 'yes', options: [['yes', 'Yes'], ['no', 'No']]}], async v => {
+    if (!v.name) throw new Error('Name is required.');
+    const code = (v.code || nextCode(v.type, new Set(locs.map(x => x.code)))).toUpperCase();
+    const row = {code, name: v.name, is_active: v.act === 'yes'};
     if (!l) row.type = v.type;
     const r = l ? await db.from('locations').update(row).eq('id', l.id).select('id') : await db.from('locations').insert(row).select('id');
     if (r.error) throw r.error; if (!r.data.length) throw new Error('Not allowed for your role.');
@@ -751,34 +758,36 @@ async function mdLocations(b) {
     if (r.error) return toast(delErr(r.error), 'err'); if (!r.data.length) return toast('Not allowed for your role.', 'err');
     toast('Deleted.'); await after();
   });
-  $('#lcTpl').onclick = () => downloadSheet('Locations_Template.xlsx', [['Code', 'Name', 'Type', 'Opening Date', 'Active'], ['SP-08', 'New Outlet', 'Sales Point', '', 'Yes']]);
-  $('#lcExp').onclick = () => exportSheet('Locations_Export.xlsx', [['Code', 'Name', 'Type', 'Opening Date', 'Active']].concat(locs.map(l => [l.code, l.name, tname(l.type), l.opening_date || '', l.is_active ? 'Yes' : 'No'])));
+  $('#lcTpl').onclick = () => downloadSheet('Locations_Template.xlsx', [['Location Name', 'Type', 'Code', 'Active'], ['New Outlet', 'Sales Point', '', 'Yes']]);
+  $('#lcExp').onclick = () => exportSheet('Locations_Export.xlsx', [['Location Name', 'Type', 'Code', 'Active']].concat(locs.map(l => [l.name, tname(l.type), l.code, l.is_active ? 'Yes' : 'No'])));
   $('#lcGo').onclick = async () => {
     const msg = $('#lcMsg'), btn = $('#lcGo'); note(msg, '');
     try {
       const f = $('#lcFile').files[0]; if (!f) return note(msg, 'Please choose the locations sheet first.', 'warn');
-      const byCode = new Map(locs.map(l => [norm(l.code), l])), seen = new Set(), ins = [], upd = [], errs = [];
+      const byCode = new Map(locs.map(l => [norm(l.code), l])), byName = new Map(locs.map(l => [norm(l.name), l]));
+      const used = new Set(locs.map(l => l.code.toUpperCase())), seen = new Set(), ins = [], upd = [], errs = [];
       (await readSheet(f)).forEach((r, i) => {
-        const code = String(pick(r, 'Code', 'Location Code')).trim().toUpperCase(), name = String(pick(r, 'Name', 'Location Name')).trim();
-        if (!code && !name) return;
-        if (!code || !name) return errs.push(`Row ${i + 2}: Code and Name are both required.`);
-        const tr = norm(pick(r, 'Type')).replace(/[_-]/g, ' '), od = String(pick(r, 'Opening Date')).trim(), act = String(pick(r, 'Active')).trim();
-        const type = ['warehouse', 'wh'].includes(tr) ? 'warehouse' : ['sales point', 'salespoint', 'sp', 'outlet'].includes(tr) ? 'sales_point' : '';
-        const ex = byCode.get(norm(code));
-        if (!type && !ex) return errs.push(`Row ${i + 2}: Type must be Warehouse or Sales Point (${code}).`);
-        if (od && !/^\d{4}-\d{2}-\d{2}$/.test(od)) return errs.push(`Row ${i + 2}: Opening Date must be yyyy-mm-dd (${code}).`);
-        if (seen.has(norm(code))) return errs.push(`Row ${i + 2}: duplicate code ${code}.`); seen.add(norm(code));
-        if (ex) { if (type && type !== ex.type) return errs.push(`Row ${i + 2}: ${code} is already a ${tname(ex.type)}; type cannot be changed.`);
-          upd.push({id: ex.id, code: ex.code, name, type: ex.type, opening_date: od || ex.opening_date, is_active: act === '' ? ex.is_active : yes(act)}); }
-        else ins.push({code, name, type, opening_date: od || null, is_active: act === '' ? true : yes(act)});
+        const name = String(pick(r, 'Location Name', 'Name')).trim(); if (!name) return;
+        const codeIn = String(pick(r, 'Code', 'Location Code')).trim().toUpperCase(), act = String(pick(r, 'Active')).trim();
+        const tr = norm(pick(r, 'Type')).replace(/[_-]/g, ' ');
+        const type = /^(warehouse|wh)/.test(tr) ? 'warehouse' : /^(sales ?point|sp|outlet)/.test(tr) ? 'sales_point' : '';
+        const ex = (codeIn && byCode.get(norm(codeIn))) || byName.get(norm(name));
+        if (!type && !ex) return errs.push(`Row ${i + 2}: Type must be Warehouse or Sales Point ("${name}").`);
+        const key = ex ? ex.id : norm(name); if (seen.has(key)) return errs.push(`Row ${i + 2}: duplicate location "${name}".`); seen.add(key);
+        if (ex) {
+          if (type && type !== ex.type) return errs.push(`Row ${i + 2}: "${name}" is already a ${tname(ex.type)}; type cannot be changed.`);
+          upd.push({id: ex.id, code: ex.code, name, type: ex.type, is_active: act === '' ? ex.is_active : yes(act)});
+        } else {
+          const code = codeIn || nextCode(type, used); used.add(code);
+          ins.push({code, name, type, is_active: act === '' ? true : yes(act)});
+        }
       });
       if (errs.length) return note(msg, errs.slice(0, 15).map(esc).join('<br>'), 'err');
       if (!ins.length && !upd.length) return note(msg, 'No rows found in the sheet.', 'info');
       btn.disabled = true;
       if (ins.length) { const r = await db.from('locations').insert(ins); if (r.error) throw r.error; }
       if (upd.length) { const r = await db.from('locations').upsert(upd, {onConflict: 'id'}); if (r.error) throw r.error; }
-      toast(`${ins.length} added, ${upd.length} updated.`);
-      await after();
+      toast(`${ins.length} added, ${upd.length} updated.`); await after();
     } catch (e) { note(msg, esc(e.message || e), 'err'); }
     finally { btn.disabled = false; }
   };
