@@ -293,6 +293,8 @@ const TABS = [
   {id: 'sales', label: 'Daily Sales', render: renderSales},
   {id: 'indent', label: 'Indent Management', central: true, render: renderIndent},
   {id: 'plan', label: 'Distribution & Forecasting', central: true, render: renderPlan},
+  {id: 'planset', label: 'Planning Rules', central: true, render: renderPlanRules},
+  {id: 'abc', label: 'ABC Analysis', central: true, render: renderAbc},
   {id: 'challan', label: 'Delivery Challan', render: renderChallan},
   {id: 'transfer', label: 'Transfer', central: true, render: v => stockOps(v, 'trf')},
   {id: 'return', label: 'Return', render: v => stockOps(v, 'ret')},
@@ -305,7 +307,7 @@ const TABS = [
 ];
 function buildTabs() {
   $('#tabs').innerHTML = TABS.filter(t => tabOk(t))
-    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
+    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
@@ -785,6 +787,35 @@ function bulkIndent(v, sps) {
 
 // ============================ DISTRIBUTION & FORECASTING ============================
 // Supply = ceil(avg daily sales x (delivery gap + buffer) - current stock); when warehouse stock is short it is shared by sales rate.
+// ---------- Phase 3 helpers: ABC, buffer rules, seasonal events ----------
+const ABC_DAYS = 90, CLS_BADGE = {A: 'b-give', B: 'b-partial', C: 'b-dispatched', X: 'b-cancelled'};
+async function rpcAll(fn, args, ...cols) {
+  try { return await fetchAll((a, b) => { let q = db.rpc(fn, args); cols.forEach(c => q = q.order(c)); return q.range(a, b); }); }
+  catch (e) { throw new Error(['42P01', 'PGRST205', 'PGRST202'].includes(e.code) ? 'Run uol_step4_forecasting.sql in the Supabase SQL Editor first.' : (e.message || e)); }
+}
+function abcCompute(qtyMap, aCut, bCut) {
+  const act = products.filter(p => p.is_active), useVal = act.some(p => Number(p.mrp) > 0);
+  const items = act.map(p => { const q = qtyMap.get(p.id) || 0; return {p, qty: q, value: useVal ? q * (Number(p.mrp) || 0) : q}; });
+  const sold = items.filter(i => i.value > 0).sort((a, b) => b.value - a.value), total = sold.reduce((a, i) => a + i.value, 0), map = new Map();
+  let cum = 0, rank = 0;
+  sold.forEach(i => { const before = cum / total * 100; cum += i.value; i.cls = before < aCut ? 'A' : before < bCut ? 'B' : 'C'; i.share = i.value / total * 100; i.cum = cum / total * 100; i.rank = ++rank; map.set(i.p.id, i); });
+  items.filter(i => i.value <= 0).forEach(i => { i.cls = 'X'; i.share = 0; i.cum = 100; i.rank = null; map.set(i.p.id, i); });
+  return {map, useVal, total, items: [...sold, ...items.filter(i => i.value <= 0)]};
+}
+function ruleFor(rules, p, cls) {
+  const out = {gap: null, buf: null};
+  [['product', p.id], ['category', p.category], ['supplier', p.supplier], ['abc', cls]].forEach(([sc, key]) => {
+    if (!key) return; const r = rules.find(x => x.scope === sc && norm(x.rule_key) === norm(key)); if (!r) return;
+    if (out.gap == null && r.gap_days != null) out.gap = r.gap_days; if (out.buf == null && r.buffer_days != null) out.buf = r.buffer_days;
+  });
+  return out;
+}
+function eventFactor(events, p, from, H) {
+  const ev = events.filter(e => e.scope === 'all' || (e.scope === 'product' && e.scope_key === p.id) || (e.scope === 'category' && norm(e.scope_key) === norm(p.category)) || (e.scope === 'supplier' && norm(e.scope_key) === norm(p.supplier)));
+  if (!ev.length) return 1; let sum = 0;
+  for (let i = 0; i < H; i++) { const d = addDays(from, i); let f = 1; ev.forEach(e => { if (d >= e.start_date && d <= e.end_date) f *= Number(e.factor); }); sum += f; }
+  return sum / H;
+}
 function allocate(W, need, w) {
   const give = need.map(() => 0); let rem = Math.floor(W), open = need.map((x, i) => x > 0 ? i : -1).filter(i => i >= 0);
   while (rem > 0 && open.length) {
@@ -800,14 +831,21 @@ function allocate(W, need, w) {
 }
 async function renderPlan(v) {
   const sps = locations.filter(l => l.type === 'sales_point'), act = products.filter(p => p.is_active);
-  const [ls, sl] = await Promise.all([liveStock(), salesSince(addDays(today(), -(WINDOW_DAYS - 1)))]);
+  const winFrom = addDays(today(), -(WINDOW_DAYS - 1)), prevFrom = addDays(winFrom, -WINDOW_DAYS), prevTo = addDays(winFrom, -1);
+  const [ls, fb, curP, prevP, abcP, rulesQ, evQ] = await Promise.all([liveStock(), rpcAll('forecast_base', {p_from: winFrom, p_to: today()}, 'loc_id', 'prod_id'),
+    rpcAll('sales_agg', {p_from: winFrom, p_to: today(), p_by_location: false}, 'prod_id'), rpcAll('sales_agg', {p_from: prevFrom, p_to: prevTo, p_by_location: false}, 'prod_id'),
+    rpcAll('sales_agg', {p_from: addDays(today(), -(ABC_DAYS - 1)), p_to: today(), p_by_location: false}, 'prod_id'),
+    db.from('plan_rules').select('*'), db.from('season_events').select('*').eq('is_active', true)]);
+  if (rulesQ.error || evQ.error) throw new Error('Run uol_step4_forecasting.sql in the Supabase SQL Editor first.');
+  const fbm = new Map(fb.map(r => [r.loc_id + '|' + r.prod_id, {sold: Number(r.sold), tracked: r.tracked_days, avail: r.avail_days}]));
+  const mapP = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)])), curM = mapP(curP), prevM = mapP(prevP);
+  const abc = abcCompute(mapP(abcP), 80, 95).map, rules = rulesQ.data, events = evQ.data, lyFactor = new Map(); let lyLoaded = false;
   const tq = await db.from('v_in_transit').select('location_id,product_id,qty').limit(5000);
   if (tq.error) throw new Error(['42P01', 'PGRST205'].includes(tq.error.code) ? 'Run uol_step2_challan_grn.sql in the Supabase SQL Editor first.' : tq.error.message);
   const transit = new Map(tq.data.map(r => [r.location_id + '|' + r.product_id, Number(r.qty)]));
   const whs = locations.filter(l => l.type === 'warehouse');
   const stock = new Map(), wh = new Map(), whLoc = new Map();
   ls.forEach(r => { const q = Number(r.live_qty); if (r.location_type === 'warehouse') { wh.set(r.product_id, (wh.get(r.product_id) || 0) + q); whLoc.set(r.location_id + '|' + r.product_id, q); } else stock.set(r.location_id + '|' + r.product_id, q); });
-  const sold = new Map(); sl.forEach(r => { const k = r.location_id + '|' + r.product_id; sold.set(k, (sold.get(k) || 0) + Number(r.qty)); });
   const ind = await db.from('indents').select('id,location_id').order('indent_date', {ascending: false}).order('created_at', {ascending: false}).limit(2000);
   if (ind.error) throw ind.error;
   const latest = new Map(); ind.data.forEach(r => { if (!latest.has(r.location_id)) latest.set(r.location_id, r.id); });
@@ -815,7 +853,7 @@ async function renderPlan(v) {
   if (ids.length) (await fetchAll((a, b) => db.from('indent_lines').select('indent_id,product_id,requested_qty').in('indent_id', ids).order('id').range(a, b)))
     .forEach(r => req.set(idLoc.get(r.indent_id) + '|' + r.product_id, Number(r.requested_qty)));
   v.innerHTML = `<div class="card"><h2>Distribution &amp; Forecasting</h2>
-    <p class="sub">Supply for each sales point = Avg daily sales × (Delivery gap + Buffer) − (Current stock + In-transit). If the warehouse has less than the total demand, it is shared between sales points in proportion to their sales rate. Avg daily sales = last ${WINDOW_DAYS} days ÷ ${WINDOW_DAYS}.</p>
+    <p class="sub">Supply for each sales point = Avg daily sales × (Delivery gap + Buffer) − (Current stock + In-transit). If the warehouse has less than the total demand, it is shared between sales points in proportion to their sales rate. Avg daily sales = last ${WINDOW_DAYS} days, ignoring days the sales point had no stock; it can be adjusted for trend and seasonal events. Delivery gap and buffer can be overridden per product, category, supplier or ABC class in <b>Planning Rules</b>.</p>
     <div class="row"><div><label>View</label><select id="plView"><option value="">All sales points (summary)</option>${sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
     <div><label>Source warehouse</label><select id="plSrc"><option value="">All warehouses (merged)</option>${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
     <div><label>Delivery gap (days): <b id="gapV">3</b></label><input type="range" id="plGap" min="1" max="30" value="3"></div>
@@ -823,16 +861,28 @@ async function renderPlan(v) {
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plAuto" checked> Auto buffer = <input type="number" id="plPct" value="25" min="0" max="100" style="min-width:0;width:64px;padding:5px 6px">% of gap (min 1 day)</label>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plCap"> Do not supply more than indent qty</label>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plHide" checked> Hide products with no supply</label>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plSo" checked> Ignore stock-out days</label>
+    <div><label>Sales trend</label><select id="plTr"><option value="0">Off</option><option value="1">Moderate (±25%)</option><option value="2">Full (±50%)</option></select></div>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plSea" checked> Apply seasonal events</label>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plLy"> Auto seasonality (last year)</label>
+    <div><label>ABC class</label><select id="plAbc"><option value="">All</option><option>A</option><option>B</option><option>C</option><option value="X">X (no sales)</option></select></div>
     <button class="btn alt" id="plExp">Export Plan (Excel)</button><button class="btn" id="plMk">Create Challan(s)</button></div></div><div id="plOut"></div>`;
   let cur = null;
   const compute = () => {
-    const gap = +$('#plGap').value, buf = +$('#plBuf').value, cap = $('#plCap').checked;
+    const G = +$('#plGap').value, cap = $('#plCap').checked, so = $('#plSo').checked, trm = +$('#plTr').value, sea = $('#plSea').checked, ly = $('#plLy').checked,
+      auto = $('#plAuto').checked, pct = +$('#plPct').value || 0, Bsl = +$('#plBuf').value, src = $('#plSrc').value;
     return act.map(p => {
-      const rows = sps.map(sp => { const k = sp.id + '|' + p.id, avg = (sold.get(k) || 0) / WINDOW_DAYS, st = stock.get(k) || 0, rq = req.get(k) || 0, tr = transit.get(k) || 0;
-        let need = Math.max(0, Math.ceil(avg * (gap + buf) - st - tr - 1e-9)); if (cap) need = Math.min(need, Math.ceil(rq)); return {sp, avg, st, tr, rq, need}; });
-      const src = $('#plSrc').value, W = Math.max(0, (src ? whLoc.get(src + '|' + p.id) : wh.get(p.id)) || 0), give = allocate(W, rows.map(r => r.need), rows.map(r => r.avg));
+      const cls = (abc.get(p.id) || {}).cls || 'X', rl = ruleFor(rules, p, cls);
+      const gap = rl.gap ?? G, buf = rl.buf ?? (auto ? Math.max(1, Math.ceil(gap * pct / 100)) : Bsl), H = gap + buf;
+      let tf = 1; if (trm) { const c = curM.get(p.id) || 0, pv = prevM.get(p.id) || 0; if (pv >= 10) { const lim = trm === 1 ? 0.25 : 0.5; tf = Math.min(1 + lim, Math.max(1 - lim, c / pv)); } }
+      let sf = 1; if (sea) sf *= eventFactor(events, p, today(), H); if (ly) sf *= lyFactor.get(p.id) || 1;
+      const factor = Math.min(4, Math.max(0.3, tf * sf));
+      const rows = sps.map(sp => { const k = sp.id + '|' + p.id, b = fbm.get(k) || {sold: 0, tracked: 0, avail: 0}, st = stock.get(k) || 0, rq = req.get(k) || 0, tr = transit.get(k) || 0;
+        const base = so ? (b.avail > 0 ? b.sold / Math.max(b.avail, Math.min(7, b.tracked)) : 0) : b.sold / WINDOW_DAYS, avg = base * factor;
+        let need = Math.max(0, Math.ceil(avg * H - st - tr - 1e-9)); if (cap) need = Math.min(need, Math.ceil(rq)); return {sp, avg, so: b.tracked - b.avail, st, tr, rq, need}; });
+      const W = Math.max(0, (src ? whLoc.get(src + '|' + p.id) : wh.get(p.id)) || 0), give = allocate(W, rows.map(r => r.need), rows.map(r => r.avg));
       rows.forEach((r, i) => r.give = give[i]);
-      return {p, W, rows, need: rows.reduce((a, r) => a + r.need, 0), give: give.reduce((a, b) => a + b, 0)};
+      return {p, cls, gap, buf, factor, W, rows, need: rows.reduce((a, r) => a + r.need, 0), give: give.reduce((a, b) => a + b, 0)};
     });
   };
   const draw = () => {
@@ -842,22 +892,33 @@ async function renderPlan(v) {
     cur = compute(); const loc = $('#plView').value, hide = $('#plHide').checked, out = $('#plOut');
     const short = cur.filter(x => x.give < x.need).length;
     if (!loc) {
-      const list = hide ? cur.filter(x => x.need > 0) : cur;
+      const ab = $('#plAbc').value, list = (hide ? cur.filter(x => x.need > 0) : cur).filter(x => !ab || x.cls === ab);
       out.innerHTML = `<div class="grid" style="margin-bottom:14px"><div class="tile"><small>Products to supply</small><b>${cur.filter(x => x.give > 0).length}</b></div><div class="tile"><small>Total units to supply</small><b>${fmt(cur.reduce((a, x) => a + x.give, 0))}</b></div><div class="tile"><small>Products short of warehouse stock</small><b>${short}</b></div></div>
       <div class="card"><div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Warehouse stock</th><th class="n">Total need</th>${sps.map(l => `<th class="n">${esc(l.name)}</th>`).join('')}<th class="n">Total supply</th></tr></thead><tbody>
-      ${list.map(x => `<tr><td>${esc(x.p.name)}</td><td class="n">${fmt(x.W)}</td><td class="n">${fmt(x.need)}</td>${x.rows.map(r => `<td class="n">${r.give ? `<b>${fmt(r.give)}</b>` : '<span class="muted">0</span>'}${r.give < r.need ? `<br><small class="muted">of ${fmt(r.need)}</small>` : ''}</td>`).join('')}<td class="n"><b>${fmt(x.give)}</b></td></tr>`).join('') || `<tr><td colspan="${sps.length + 4}" class="muted">No supply needed with these settings.</td></tr>`}
+      ${list.map(x => `<tr><td>${esc(x.p.name)} <span class="badge ${CLS_BADGE[x.cls]}">${x.cls}</span></td><td class="n">${fmt(x.W)}</td><td class="n">${fmt(x.need)}</td>${x.rows.map(r => `<td class="n">${r.give ? `<b>${fmt(r.give)}</b>` : '<span class="muted">0</span>'}${r.give < r.need ? `<br><small class="muted">of ${fmt(r.need)}</small>` : ''}</td>`).join('')}<td class="n"><b>${fmt(x.give)}</b></td></tr>`).join('') || `<tr><td colspan="${sps.length + 4}" class="muted">No supply needed with these settings.</td></tr>`}
       <tr class="total"><td>Products supplied</td><td></td><td></td>${sps.map((l, i) => `<td class="n">${cur.filter(x => x.rows[i].give > 0).length}</td>`).join('')}<td></td></tr>
       <tr class="total"><td>Units supplied</td><td></td><td></td>${sps.map((l, i) => `<td class="n">${fmt(cur.reduce((a, x) => a + x.rows[i].give, 0))}</td>`).join('')}<td class="n">${fmt(cur.reduce((a, x) => a + x.give, 0))}</td></tr>
       </tbody></table></div></div>`;
     } else {
-      const i = sps.findIndex(l => l.id === loc), list = cur.map(x => ({x, r: x.rows[i]})).filter(o => !hide || o.r.need > 0 || o.r.give > 0);
+      const i = sps.findIndex(l => l.id === loc), list = cur.map(x => ({x, r: x.rows[i]})).filter(o => (!hide || o.r.need > 0 || o.r.give > 0) && (!$('#plAbc').value || o.x.cls === $('#plAbc').value));
       const stt = r => r.need === 0 ? ['Stock OK', 'b-received'] : r.give >= r.need ? ['Supply', 'b-give'] : r.give > 0 ? ['Partial', 'b-partial'] : ['No warehouse stock', 'b-do_not_give'];
-      out.innerHTML = `<div class="card"><h3>${esc(sps[i].name)}</h3><div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Current stock</th><th class="n">In-transit</th><th class="n">Avg daily sales</th><th class="n">Days cover</th><th class="n">Indent qty</th><th class="n">Need</th><th class="n">Warehouse stock</th><th class="n">Suggested supply</th><th>Status</th><th class="n">Days cover after delivery</th></tr></thead><tbody>
-      ${list.map(({x, r}) => { const s2 = stt(r); return `<tr><td>${esc(x.p.name)}</td><td class="n">${fmt(r.st)}</td><td class="n">${r.tr ? fmt(r.tr) : '<span class="muted">0</span>'}</td><td class="n">${fmt(r.avg)}</td><td class="n">${r.avg > 0 ? fmt(r.st / r.avg) : '—'}</td><td class="n">${fmt(r.rq)}</td><td class="n">${fmt(r.need)}</td><td class="n">${fmt(x.W)}</td><td class="n"><b>${fmt(r.give)}</b></td><td><span class="badge ${s2[1]}">${s2[0]}</span></td><td class="n">${r.avg > 0 ? fmt((r.st + r.tr + r.give) / r.avg) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="11" class="muted">No supply needed with these settings.</td></tr>'}
+      out.innerHTML = `<div class="card"><h3>${esc(sps[i].name)}</h3><div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Current stock</th><th class="n">In-transit</th><th class="n">Avg daily sales</th><th class="n">Stock-out days</th><th class="n">Factor</th><th class="n">Gap + Buffer</th><th class="n">Days cover</th><th class="n">Indent qty</th><th class="n">Need</th><th class="n">Warehouse stock</th><th class="n">Suggested supply</th><th>Status</th><th class="n">Days cover after delivery</th></tr></thead><tbody>
+      ${list.map(({x, r}) => { const s2 = stt(r); return `<tr><td>${esc(x.p.name)} <span class="badge ${CLS_BADGE[x.cls]}">${x.cls}</span></td><td class="n">${fmt(r.st)}</td><td class="n">${r.tr ? fmt(r.tr) : '<span class="muted">0</span>'}</td><td class="n">${fmt(r.avg)}</td><td class="n">${r.so > 0 ? `<span style="color:#b91c1c">${r.so}</span>` : '0'}</td><td class="n">×${x.factor.toFixed(2)}</td><td class="n">${x.gap} + ${x.buf}</td><td class="n">${r.avg > 0 ? fmt(r.st / r.avg) : '—'}</td><td class="n">${fmt(r.rq)}</td><td class="n">${fmt(r.need)}</td><td class="n">${fmt(x.W)}</td><td class="n"><b>${fmt(r.give)}</b></td><td><span class="badge ${s2[1]}">${s2[0]}</span></td><td class="n">${r.avg > 0 ? fmt((r.st + r.tr + r.give) / r.avg) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="14" class="muted">No supply needed with these settings.</td></tr>'}
       </tbody></table></div></div>`;
     }
   };
-  ['plView', 'plSrc', 'plGap', 'plBuf', 'plCap', 'plHide', 'plAuto', 'plPct'].forEach(id => $('#' + id).oninput = draw);
+  ['plView', 'plSrc', 'plGap', 'plBuf', 'plCap', 'plHide', 'plAuto', 'plPct', 'plSo', 'plTr', 'plSea', 'plAbc'].forEach(id => $('#' + id).oninput = draw);
+  $('#plLy').onchange = async () => {
+    if ($('#plLy').checked && !lyLoaded) {
+      try {
+        const a0 = addDays(today(), -365), mk = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)]));
+        const nx = mk(await rpcAll('sales_agg', {p_from: a0, p_to: addDays(a0, 29), p_by_location: false}, 'prod_id')), pv = mk(await rpcAll('sales_agg', {p_from: addDays(a0, -30), p_to: addDays(a0, -1), p_by_location: false}, 'prod_id'));
+        act.forEach(p => { const q = pv.get(p.id) || 0; if (q >= 10) lyFactor.set(p.id, Math.min(3, Math.max(0.5, (nx.get(p.id) || 0) / q))); });
+        lyLoaded = true; toast(lyFactor.size ? `Last-year pattern found for ${lyFactor.size} products.` : 'No sales history older than one year yet, so nothing is adjusted.', lyFactor.size ? 'ok' : 'err');
+      } catch (e) { toast(e.message, 'err'); $('#plLy').checked = false; }
+    }
+    draw();
+  };
   $('#plMk').onclick = () => {
     const src = $('#plSrc').value, loc = $('#plView').value;
     if (!src) return toast('Select one source warehouse first (not "All warehouses").', 'err');
@@ -1145,6 +1206,88 @@ async function renderAudit(v) {
   $('#auGo').onclick = load; $('#auQ').oninput = draw;
   $('#auX').onclick = () => downloadSheet('Audit_Trail.xlsx', [['Time', 'User', 'Role', 'Action', 'Area', 'Summary', 'Details']].concat(rows.map(r => [new Date(r.at).toLocaleString('en-GB', {timeZone: TZ}), r.actor || '', r.role || '', r.action, r.entity, r.summary || '', r.details ? JSON.stringify(r.details) : ''])));
   await load();
+}
+
+// ============================ ABC ANALYSIS ============================
+async function renderAbc(v) {
+  v.innerHTML = `<div class="card"><h2>ABC Analysis</h2><p class="sub">Products ranked by sales value (units × MRP). <b>A</b> = the products that make the first part of sales, <b>B</b> the next part, <b>C</b> the rest. <b>X</b> = no sales in the period; X with stock on hand is <b>dead stock</b>. Distribution &amp; Forecasting uses the last ${ABC_DAYS} days with A = 80%, B = 95% for class-wise rules.</p>
+    <div class="row"><div><label>Sales period</label><select id="abD">${[30, 60, 90, 180, 365].map(d => `<option value="${d}" ${d === ABC_DAYS ? 'selected' : ''}>Last ${d} days</option>`).join('')}</select></div>
+    <div><label>A up to (% of sales)</label><input type="number" id="abA" value="80" min="1" max="99" style="min-width:0;width:90px"></div><div><label>B up to (% of sales)</label><input type="number" id="abB" value="95" min="2" max="100" style="min-width:0;width:90px"></div>
+    <div><label>Show class</label><select id="abC"><option value="">All</option><option>A</option><option>B</option><option>C</option><option value="X">X (no sales)</option></select></div>
+    <button class="btn" id="abGo">Calculate</button><button class="btn alt" id="abX">Export Excel</button></div></div><div id="abOut"></div>`;
+  let data = null;
+  const draw = () => {
+    if (!data) return; const f = $('#abC').value, list = data.items.filter(i => !f || i.cls === f), cnt = c => data.items.filter(i => i.cls === c);
+    const dead = cnt('X').filter(i => i.stock > 0), share = c => cnt(c).reduce((a, i) => a + i.share, 0);
+    $('#abOut').innerHTML = `<div class="grid" style="margin-bottom:14px">${['A', 'B', 'C'].map(c => `<div class="tile"><small>Class ${c}</small><b>${cnt(c).length} products</b><small>${share(c).toFixed(1)}% of sales</small></div>`).join('')}
+      <div class="tile"><small>Dead stock (no sales, stock on hand)</small><b>${dead.length} products</b><small>${fmt(dead.reduce((a, i) => a + i.stock, 0))} units${data.useVal ? ' · Tk ' + fmt(dead.reduce((a, i) => a + i.stock * (Number(i.p.mrp) || 0), 0)) : ''}</small></div></div>
+      <div class="card"><div class="tablewrap"><table><thead><tr><th class="n">#</th><th>Code</th><th>Product</th><th>Category</th><th>Class</th><th class="n">Units sold</th><th class="n">${data.useVal ? 'Sales value (Tk)' : 'Value'}</th><th class="n">Share %</th><th class="n">Cumulative %</th><th class="n">Stock (all locations)</th><th class="n">Days of stock</th><th>Note</th></tr></thead><tbody>
+      ${list.map(i => `<tr><td class="n">${i.rank ?? ''}</td><td>${esc(i.p.sku || '')}</td><td>${esc(i.p.name)}</td><td>${esc(i.p.category || '')}</td><td><span class="badge ${CLS_BADGE[i.cls]}">${i.cls}</span></td><td class="n">${fmt(i.qty)}</td><td class="n">${fmt(i.value)}</td><td class="n">${i.cls === 'X' ? '' : i.share.toFixed(2)}</td><td class="n">${i.cls === 'X' ? '' : i.cum.toFixed(1)}</td><td class="n">${fmt(i.stock)}</td><td class="n">${i.days == null ? '—' : fmt(i.days)}</td><td>${i.note}</td></tr>`).join('') || '<tr><td colspan="12" class="muted">No products.</td></tr>'}
+      </tbody></table></div></div>`;
+  };
+  const load = async () => {
+    const days = +$('#abD').value, aCut = +$('#abA').value, bCut = +$('#abB').value;
+    if (!(aCut > 0 && bCut > aCut && bCut <= 100)) return toast('B must be greater than A, and both between 1 and 100.', 'err');
+    const [rows, ls] = await Promise.all([rpcAll('sales_agg', {p_from: addDays(today(), -(days - 1)), p_to: today(), p_by_location: false}, 'prod_id'), liveStock()]);
+    const stock = new Map(); ls.forEach(r => stock.set(r.product_id, (stock.get(r.product_id) || 0) + Number(r.live_qty)));
+    const r = abcCompute(new Map(rows.map(x => [x.prod_id, Number(x.qty)])), aCut, bCut);
+    r.items.forEach(i => { i.stock = stock.get(i.p.id) || 0; i.days = i.qty > 0 ? i.stock / (i.qty / days) : null;
+      i.note = i.cls === 'X' && i.stock > 0 ? '<span class="badge b-do_not_give">Dead stock</span>' : i.qty > 0 && i.stock <= 0 ? '<span class="badge b-partial">Out of stock</span>' : i.days > 180 ? '<span class="badge b-partial">Slow-moving</span>' : ''; });
+    data = r; draw();
+  };
+  $('#abGo').onclick = () => load().catch(e => toast(e.message, 'err')); $('#abC').onchange = draw;
+  $('#abX').onclick = () => data ? downloadSheet('ABC_Analysis.xlsx', [['Rank', 'Code', 'Product', 'Category', 'Supplier', 'Class', 'Units sold', 'Value', 'Share %', 'Cumulative %', 'Stock', 'Days of stock']]
+    .concat(data.items.map(i => [i.rank ?? '', i.p.sku || '', i.p.name, i.p.category || '', i.p.supplier || '', i.cls, i.qty, i.value, i.cls === 'X' ? '' : +i.share.toFixed(2), i.cls === 'X' ? '' : +i.cum.toFixed(1), i.stock, i.days == null ? '' : +i.days.toFixed(1)]))) : toast('Calculate first.', 'err');
+  await load();
+}
+
+// ============================ PLANNING RULES (buffer rules + seasonal events) ============================
+async function renderPlanRules(v) {
+  const [rq, eq] = await Promise.all([db.from('plan_rules').select('*').order('scope').order('rule_key'), db.from('season_events').select('*').order('start_date', {ascending: false})]);
+  const miss = ['42P01', 'PGRST205'].includes((rq.error || eq.error || {}).code); if (miss) throw new Error('Run uol_step4_forecasting.sql in the Supabase SQL Editor first.'); if (rq.error || eq.error) throw (rq.error || eq.error);
+  const rules = rq.data, events = eq.data;
+  const optsFor = sc => sc === 'category' ? [...new Set(products.map(p => p.category).filter(Boolean))].sort() : sc === 'supplier' ? [...new Set(products.map(p => p.supplier).filter(Boolean))].sort() : ['A', 'B', 'C', 'X'];
+  const keyHtml = (sc, id) => sc === 'all' ? '<span class="muted">All products</span>' : sc === 'product'
+    ? `<input list="dl_${id}" id="${id}" placeholder="type product name" style="min-width:260px"><datalist id="dl_${id}">${products.map(p => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>`
+    : `<select id="${id}">${optsFor(sc).map(o => `<option>${esc(o)}</option>`).join('') || '<option value="">(none in product master)</option>'}</select>`;
+  const keyVal = (sc, id) => { if (sc === 'all') return null; const el = $('#' + id); if (sc === 'product') { const pr = productMap().get(norm(el.value)); if (!pr) throw new Error('Choose a product from the list.'); return pr.id; } if (!el.value) throw new Error('Nothing to select: fill the product master first.'); return el.value; };
+  const label = (sc, key) => sc === 'all' ? 'All products' : sc === 'product' ? prodName(key) : sc === 'abc' ? `Class ${key}` : key;
+  v.innerHTML = `<div class="card"><h2>Planning Rules</h2><p class="sub">Override the delivery gap and buffer in Distribution &amp; Forecasting for a group of products. Leave a box empty to use the screen's default. When several rules match, the order is: <b>Product → Category → Supplier → ABC class → default</b>.</p>
+    <h3>Delivery gap / buffer rules</h3>
+    <div class="row"><div><label>Applies to</label><select id="rlS"><option value="category">Category</option><option value="supplier">Supplier</option><option value="abc">ABC class</option><option value="product">Single product</option></select></div>
+    <div><label>Which one</label><span id="rlK"></span></div><div><label>Delivery gap (days)</label><input type="number" id="rlG" min="1" max="90" style="min-width:0;width:110px"></div><div><label>Buffer (days)</label><input type="number" id="rlB" min="0" max="60" style="min-width:0;width:110px"></div>
+    <button class="btn" id="rlAdd">Save rule</button></div><div id="rlM"></div>
+    <div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Applies to</th><th>Which</th><th class="n">Delivery gap</th><th class="n">Buffer</th><th></th></tr></thead><tbody>
+    ${rules.map(r => `<tr><td>${{product: 'Product', category: 'Category', supplier: 'Supplier', abc: 'ABC class'}[r.scope]}</td><td>${esc(label(r.scope, r.rule_key))}</td><td class="n">${r.gap_days ?? '<span class="muted">default</span>'}</td><td class="n">${r.buffer_days ?? '<span class="muted">default</span>'}</td><td><button class="mini d" data-r="${r.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No rules yet. Everything uses the screen default.</td></tr>'}</tbody></table></div></div>
+    <div class="card"><h3>Seasonal events</h3><p class="sub">Tell the planner when sales will be higher or lower than usual (Eid, Ramadan, winter, a campaign). Factor 1.5 = 50% more sales, 0.8 = 20% less. Applied only to the part of the delivery period (gap + buffer) that falls inside the event dates.</p>
+    <div class="row"><div><label>Event name</label><input type="text" id="evN" placeholder="e.g. Eid-ul-Adha"></div><div><label>From</label><input type="date" id="evF"></div><div><label>To</label><input type="date" id="evT"></div>
+    <div><label>Factor</label><input type="number" id="evX" value="1.5" step="0.05" min="0.1" max="10" style="min-width:0;width:100px"></div>
+    <div><label>Applies to</label><select id="evS"><option value="all">All products</option><option value="category">Category</option><option value="supplier">Supplier</option><option value="product">Single product</option></select></div><div><label>Which one</label><span id="evK"></span></div>
+    <button class="btn" id="evAdd">Add event</button></div><div id="evM"></div>
+    <div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Event</th><th>Dates</th><th class="n">Factor</th><th>Applies to</th><th>Status</th><th></th></tr></thead><tbody>
+    ${events.map(e => `<tr style="${e.end_date < today() ? 'opacity:.55' : ''}"><td>${esc(e.name)}</td><td>${e.start_date} → ${e.end_date}</td><td class="n">×${Number(e.factor).toFixed(2)}</td><td>${esc(label(e.scope, e.scope_key))}</td><td><span class="badge ${e.is_active ? 'b-received' : 'b-cancelled'}">${e.is_active ? 'Active' : 'Off'}</span></td>
+      <td style="white-space:nowrap"><button class="mini" data-t="${e.id}">${e.is_active ? 'Turn off' : 'Turn on'}</button><button class="mini d" data-e="${e.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No seasonal events yet.</td></tr>'}</tbody></table></div></div>`;
+  const setKey = (sel, box, id) => { $(box).innerHTML = keyHtml($(sel).value, id); };
+  $('#rlS').onchange = () => setKey('#rlS', '#rlK', 'rlKey'); setKey('#rlS', '#rlK', 'rlKey');
+  $('#evS').onchange = () => setKey('#evS', '#evK', 'evKey'); setKey('#evS', '#evK', 'evKey');
+  const done = async msg => { toast(msg); await showTab('planset'); };
+  $('#rlAdd').onclick = async () => {
+    try {
+      const sc = $('#rlS').value, g = $('#rlG').value, b = $('#rlB').value; if (g === '' && b === '') throw new Error('Enter a delivery gap, a buffer, or both.');
+      const row = {scope: sc, rule_key: keyVal(sc, 'rlKey'), gap_days: g === '' ? null : +g, buffer_days: b === '' ? null : +b};
+      const r = await db.from('plan_rules').upsert(row, {onConflict: 'scope,rule_key'}); if (r.error) throw r.error; await done('Rule saved.');
+    } catch (e) { note($('#rlM'), esc(e.message || e), 'err'); }
+  };
+  $('#evAdd').onclick = async () => {
+    try {
+      const sc = $('#evS').value, n = $('#evN').value.trim(), f = $('#evF').value, t = $('#evT').value, x = +$('#evX').value;
+      if (!n || !f || !t) throw new Error('Event name and both dates are required.'); if (t < f) throw new Error('The end date is before the start date.'); if (!(x > 0)) throw new Error('Enter a factor above zero.');
+      const r = await db.from('season_events').insert({name: n, start_date: f, end_date: t, factor: x, scope: sc, scope_key: keyVal(sc, 'evKey')}); if (r.error) throw r.error; await done('Event added.');
+    } catch (e) { note($('#evM'), esc(e.message || e), 'err'); }
+  };
+  v.querySelectorAll('[data-r]').forEach(b => b.onclick = async () => { if (!confirm('Delete this rule?')) return; const r = await db.from('plan_rules').delete().eq('id', b.dataset.r); if (r.error) return toast(r.error.message, 'err'); await done('Rule deleted.'); });
+  v.querySelectorAll('[data-e]').forEach(b => b.onclick = async () => { if (!confirm('Delete this event?')) return; const r = await db.from('season_events').delete().eq('id', b.dataset.e); if (r.error) return toast(r.error.message, 'err'); await done('Event deleted.'); });
+  v.querySelectorAll('[data-t]').forEach(b => b.onclick = async () => { const e = events.find(x => x.id === b.dataset.t), r = await db.from('season_events').update({is_active: !e.is_active}).eq('id', e.id); if (r.error) return toast(r.error.message, 'err'); await done(e.is_active ? 'Event turned off.' : 'Event turned on.'); });
 }
 
 // ================================ MASTER DATA ================================
