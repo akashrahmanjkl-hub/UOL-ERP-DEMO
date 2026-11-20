@@ -285,7 +285,7 @@ async function applySession() {
   showTab(currentTab);
 }
 
-const tabOk = t => t.admin ? ['super_admin', 'admin'].includes(session.role) : tabOk(t);
+const tabOk = t => t.admin ? ['super_admin', 'admin'].includes(session.role) : t.central ? isCentral() : true;
 const TABS = [
   {id: 'dashboard', label: 'Dashboard', render: renderDashboard},
   {id: 'stock', label: 'Live Stock', render: renderStock},
