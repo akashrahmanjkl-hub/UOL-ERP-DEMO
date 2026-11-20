@@ -148,6 +148,19 @@ async function readSheet(file) {
   const wb = XLSX.read(await file.arrayBuffer(), {type: 'array', cellDates: true});
   return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval: '', raw: false, dateNF: 'yyyy-mm-dd'});
 }
+async function readTable(file, ...mustHave) {
+  const wb = XLSX.read(await file.arrayBuffer(), {type: 'array', cellDates: true});
+  for (const sn of wb.SheetNames) {
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd'});
+    for (let h = 0; h < Math.min(aoa.length, 15); h++) {
+      const hdr = aoa[h].map(c => String(c).trim());
+      if (mustHave.every(m => hdr.some(c => norm(c) === norm(m)))) {
+        return aoa.slice(h + 1).filter(r => r.some(c => String(c).trim() !== '')).map(r => { const o = {}; hdr.forEach((c, i) => { if (c) o[c] = r[i] ?? ''; }); return o; });
+      }
+    }
+  }
+  throw new Error('Could not find a header row with "' + mustHave.join('", "') + '" in any sheet of this file.');
+}
 function pick(row, ...names) {
   const k = Object.keys(row).find(k => names.some(n => norm(n) === norm(k)));
   return k === undefined ? '' : row[k];
@@ -650,17 +663,17 @@ function exportSheet(name, aoa) { downloadSheet(name, aoa); }
 
 async function mdProducts(b) {
   b.innerHTML = `<div class="card"><h3>Import Products</h3>
-    <p class="sub">Columns: <b>Product Name</b> (required), SKU, Unit, MRP, Active (Yes/No). Blank cells keep the existing value.</p>
+    <p class="sub">Columns: <b>Product Name</b> (required), Code, Category, Unit, MRP (Tk), Supplier, Active (Yes/No). Blank cells keep the existing value. Code is saved as the product's SKU.</p>
     <div class="row"><div><label>Products sheet (.xlsx / .csv)</label><input type="file" id="prFile" accept=".xlsx,.xls,.csv"></div>
     <button class="btn" id="prGo">Import / Update</button><button class="btn alt" id="prTpl">Download Template</button><button class="btn alt" id="prExp">Export Current</button></div><div id="prMsg"></div></div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0">${products.length} products</h3>
-    <div class="row"><button class="btn" id="prAdd">+ Add Product</button><button class="btn danger" id="prDelAll">Delete All</button></div></div><div class="tablewrap"><table><thead><tr><th>Product Name</th><th>SKU</th><th>Unit</th><th class="n">MRP</th><th>Active</th><th></th></tr></thead><tbody>
-    ${products.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.sku || '')}</td><td>${esc(p.unit || '')}</td><td class="n">${p.mrp == null ? '' : fmt(p.mrp)}</td><td>${p.is_active ? 'Yes' : 'No'}</td><td style="white-space:nowrap"><button class="mini" data-e="${p.id}">Edit</button><button class="mini d" data-d="${p.id}">Delete</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    <div class="row"><button class="btn" id="prAdd">+ Add Product</button><button class="btn danger" id="prDelAll">Delete All</button></div></div><div class="tablewrap"><table><thead><tr><th>Code</th><th>Product Name</th><th>Category</th><th>Unit</th><th class="n">MRP (Tk)</th><th>Supplier</th><th>Active</th><th></th></tr></thead><tbody>
+    ${products.map(p => `<tr><td>${esc(p.sku || '')}</td><td>${esc(p.name)}</td><td>${esc(p.category || '')}</td><td>${esc(p.unit || '')}</td><td class="n">${p.mrp == null ? '' : fmt(p.mrp)}</td><td>${esc(p.supplier || '')}</td><td>${p.is_active ? 'Yes' : 'No'}</td><td style="white-space:nowrap"><button class="mini" data-e="${p.id}">Edit</button><button class="mini d" data-d="${p.id}">Delete</button></td></tr>`).join('')}</tbody></table></div></div>`;
   const pForm = (title, p) => openForm(title, [
-    {k: 'name', label: 'Product Name', value: p?.name}, {k: 'sku', label: 'SKU', value: p?.sku}, {k: 'unit', label: 'Unit', value: p?.unit || 'pcs'},
-    {k: 'mrp', label: 'MRP', type: 'number', value: p?.mrp}, {k: 'act', label: 'Active', value: p ? (p.is_active ? 'yes' : 'no') : 'yes', options: [['yes', 'Yes'], ['no', 'No']]}], async v => {
+    {k: 'sku', label: 'Code', value: p?.sku}, {k: 'name', label: 'Product Name', value: p?.name}, {k: 'category', label: 'Category', value: p?.category},
+    {k: 'unit', label: 'Unit', value: p?.unit || 'PCS'}, {k: 'mrp', label: 'MRP (Tk)', type: 'number', value: p?.mrp}, {k: 'supplier', label: 'Supplier', value: p?.supplier}, {k: 'act', label: 'Active', value: p ? (p.is_active ? 'yes' : 'no') : 'yes', options: [['yes', 'Yes'], ['no', 'No']]}], async v => {
     if (!v.name) throw new Error('Product Name is required.');
-    const row = {name: v.name, sku: v.sku || null, unit: v.unit || 'pcs', mrp: v.mrp === '' ? null : Number(v.mrp), is_active: v.act === 'yes'};
+    const row = {name: v.name, sku: v.sku || null, category: v.category || null, supplier: v.supplier || null, unit: v.unit || 'PCS', mrp: v.mrp === '' ? null : Number(v.mrp), is_active: v.act === 'yes'};
     if (row.mrp !== null && !Number.isFinite(row.mrp)) throw new Error('Invalid MRP.');
     const r = p ? await db.from('products').update(row).eq('id', p.id).select('id') : await db.from('products').insert(row).select('id');
     if (r.error) throw r.error; if (!r.data.length) throw new Error('Not allowed for your role.');
@@ -675,23 +688,24 @@ async function mdProducts(b) {
     if (r.error) return toast(delErr(r.error), 'err'); if (!r.data.length) return toast('Not allowed for your role.', 'err');
     toast('Deleted.'); await applySession();
   });
-  $('#prTpl').onclick = () => downloadSheet('Products_Template.xlsx', [['Product Name', 'SKU', 'Unit', 'MRP', 'Active'], ['Sample product', 'SKU-001', 'pcs', 500, 'Yes']]);
-  $('#prExp').onclick = () => exportSheet('Products_Export.xlsx', [['Product Name', 'SKU', 'Unit', 'MRP', 'Active']].concat(products.map(p => [p.name, p.sku || '', p.unit || '', p.mrp ?? '', p.is_active ? 'Yes' : 'No'])));
+  $('#prTpl').onclick = () => downloadSheet('Products_Template.xlsx', [['Code', 'Product Name', 'Category', 'Unit', 'MRP (Tk)', 'Supplier', 'Active'], [1, 'Sample product', 'Book', 'PCS', 500, 'Supplier name', 'Yes']]);
+  $('#prExp').onclick = () => exportSheet('Products_Export.xlsx', [['Code', 'Product Name', 'Category', 'Unit', 'MRP (Tk)', 'Supplier', 'Active']].concat(products.map(p => [p.sku || '', p.name, p.category || '', p.unit || '', p.mrp ?? '', p.supplier || '', p.is_active ? 'Yes' : 'No'])));
   $('#prGo').onclick = async () => {
     const msg = $('#prMsg'), btn = $('#prGo'); note(msg, '');
     try {
       const f = $('#prFile').files[0]; if (!f) return note(msg, 'Please choose the products sheet first.', 'warn');
       const bySku = new Map(products.filter(p => p.sku).map(p => [norm(p.sku), p])), byName = productMap();
       const seen = new Set(), ins = [], upd = [], errs = [];
-      (await readSheet(f)).forEach((r, i) => {
-        const name = String(pick(r, 'Product Name', 'Product', 'Name')).trim(); if (!name) return;
-        const sku = String(pick(r, 'SKU')).trim(), unit = String(pick(r, 'Unit')).trim(), act = String(pick(r, 'Active')).trim();
-        const mr = String(pick(r, 'MRP')).trim(), mrp = mr === '' ? undefined : num(mr);
+      (await readTable(f, 'Product Name')).forEach((r, i) => {
+        const name = String(pick(r, 'Product Name')).trim(); if (!name) return;
+        const sku = String(pick(r, 'Code', 'SKU')).trim(), unit = String(pick(r, 'Unit')).trim(), act = String(pick(r, 'Active')).trim();
+        const cat = String(pick(r, 'Category')).trim(), sup = String(pick(r, 'Supplier')).trim();
+        const mr = String(pick(r, 'MRP (Tk)', 'MRP', 'Price')).trim(), mrp = mr === '' ? undefined : num(mr);
         if (mrp !== undefined && !Number.isFinite(mrp)) return errs.push(`Row ${i + 2}: invalid MRP for "${name}".`);
         const ex = (sku && bySku.get(norm(sku))) || byName.get(norm(name));
         const key = ex ? ex.id : norm(name); if (seen.has(key)) return errs.push(`Row ${i + 2}: duplicate of an earlier row ("${name}").`); seen.add(key);
-        if (ex) upd.push({id: ex.id, name, sku: sku || ex.sku, unit: unit || ex.unit, mrp: mrp === undefined ? ex.mrp : mrp, is_active: act === '' ? ex.is_active : yes(act)});
-        else ins.push({name, sku: sku || null, unit: unit || 'pcs', mrp: mrp === undefined ? null : mrp, is_active: act === '' ? true : yes(act)});
+        if (ex) upd.push({id: ex.id, name, sku: sku || ex.sku, category: cat || ex.category, supplier: sup || ex.supplier, unit: unit || ex.unit, mrp: mrp === undefined ? ex.mrp : mrp, is_active: act === '' ? ex.is_active : yes(act)});
+        else ins.push({name, sku: sku || null, category: cat || null, supplier: sup || null, unit: unit || 'PCS', mrp: mrp === undefined ? null : mrp, is_active: act === '' ? true : yes(act)});
       });
       if (errs.length) return note(msg, errs.slice(0, 15).map(esc).join('<br>'), 'err');
       if (!ins.length && !upd.length) return note(msg, 'No rows found in the sheet.', 'info');
