@@ -208,7 +208,7 @@ async function boot() {
     db = makeClient('super_admin', null);
     const {data, error} = await db.from('locations').select('*').eq('is_active', true).order('type').order('name');
     if (error) throw error;
-    if (!data.length) throw new Error('No locations found. Run uol_step1b_demo_login_and_seed.sql first.');
+    if (!data.length) currentTab = 'master', mdTab = 'locations';   // empty database: open Master Data so locations can be imported
     allLocations = data;
   } catch (e) {
     $('#view').innerHTML = `<div class="card"><h2>Cannot connect to the database</h2><div class="note err">${esc(e.message)}</div><p class="muted">Check the URL and key, and make sure both SQL files were run in order.</p></div>`;
