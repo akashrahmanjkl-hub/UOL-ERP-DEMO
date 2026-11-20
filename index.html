@@ -25,10 +25,21 @@ body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-ap
 .loginas{display:flex;align-items:center;gap:10px;background:var(--green-soft);border:1px solid #bbe5c8;border-radius:999px;padding:6px 8px 6px 14px}
 .loginas span{font-weight:700;color:#166534;font-size:12px;letter-spacing:.4px}
 .loginas select{border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:14px;background:#fff;min-width:230px}
-nav{display:flex;flex-wrap:wrap;gap:6px;padding:12px 18px 0}
-nav button{border:1px solid var(--line);background:#fff;border-radius:10px 10px 0 0;padding:9px 16px;font-weight:600;color:var(--muted);cursor:pointer}
-nav button.on{background:var(--green);color:#fff;border-color:var(--green)}
-main{padding:16px 18px 40px;max-width:1280px;margin:0 auto}
+.app{display:flex;align-items:flex-start;min-height:calc(100vh - 70px)}
+nav#tabs{width:236px;flex:none;position:sticky;top:0;align-self:stretch;background:#0f3d2e;padding:14px 10px;display:flex;flex-direction:column;gap:4px}
+nav#tabs:before{content:"MAIN MENU";color:#7fb69f;font-size:11px;font-weight:700;letter-spacing:1px;padding:4px 12px 8px}
+nav#tabs button{display:flex;align-items:center;gap:10px;text-align:left;border:0;background:transparent;border-radius:8px;padding:11px 12px;font-size:14px;font-weight:600;color:#cfe6dc;cursor:pointer}
+nav#tabs button:hover{background:#17553f}
+nav#tabs button.on{background:#14b8a6;color:#fff}
+nav#tabs button i{font-style:normal;width:20px;text-align:center}
+main{flex:1;min-width:0;padding:18px 22px 40px}
+@media(max-width:800px){.app{flex-direction:column}nav#tabs{width:100%;position:static;flex-direction:row;overflow-x:auto;padding:8px}nav#tabs:before{display:none}nav#tabs button{white-space:nowrap}}
+button.mini{border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;color:var(--green)}
+button.mini.d{color:#991b1b;border-color:#fecaca}button.mini:disabled{opacity:.4;cursor:not-allowed}
+button.btn.danger{background:#b91c1c}
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:20}
+#ov .box{background:#fff;border-radius:14px;padding:20px;width:min(440px,92vw);max-height:90vh;overflow:auto}
+#ov .box label{margin-top:10px}#ov .box input,#ov .box select{width:100%}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
 .card h2{margin:0 0 4px;font-size:17px}.card h3{margin:0 0 10px;font-size:15px}
 .sub{color:var(--muted);margin:0 0 12px}
@@ -68,8 +79,10 @@ tr.total td{font-weight:700;background:#f7faf8}
     <div class="loginas"><span>👤 LOGIN AS</span><select id="loginAs"></select></div>
   </div>
 </header>
+<div class="app">
 <nav id="tabs"></nav>
 <main id="view"></main>
+</div>
 <div id="toast"></div>
 
 <script>
@@ -268,7 +281,7 @@ const TABS = [
 ];
 function buildTabs() {
   $('#tabs').innerHTML = TABS.filter(t => t.central ? isCentral() : true)
-    .map(t => `<button data-t="${t.id}">${t.label}</button>`).join('');
+    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
@@ -592,6 +605,38 @@ async function renderSales(v) {
 
 // ================================ MASTER DATA ================================
 let mdTab = 'products';
+function openForm(title, fields, onSave) {
+  const ov = document.createElement('div'); ov.id = 'ov';
+  ov.innerHTML = `<div class="box"><h3>${esc(title)}</h3>${fields.map((f, i) => `<label>${esc(f.label)}</label>` + (f.options
+    ? `<select data-i="${i}">${f.options.map(o => `<option value="${esc(o[0])}" ${o[0] === f.value ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select>`
+    : `<input type="${f.type || 'text'}" data-i="${i}" value="${esc(f.value ?? '')}" ${f.readonly ? 'readonly style="background:#f3f4f6"' : ''}>`)).join('')}
+    <div id="ovM"></div><div class="row" style="margin-top:14px"><button class="btn" id="ovS">Save</button><button class="btn alt" id="ovC">Cancel</button></div></div>`;
+  document.body.appendChild(ov);
+  $('#ovC').onclick = () => ov.remove();
+  $('#ovS').onclick = async () => {
+    const vals = {}; ov.querySelectorAll('[data-i]').forEach(el => vals[fields[el.dataset.i].k] = el.value.trim());
+    try { await onSave(vals); ov.remove(); } catch (e) { note($('#ovM'), esc(e.message || e), 'err'); }
+  };
+}
+const delErr = e => e.code === '23503' ? 'Cannot delete: it already has stock, sales or indent records. Set it to Inactive instead.' : (e.message || e);
+async function bulkDelete(table, ids) {
+  let ok = 0, fail = 0;
+  for (let i = 0; i < ids.length; i += 10) {
+    const rs = await Promise.all(ids.slice(i, i + 10).map(id => db.from(table).delete().eq('id', id).select('id')));
+    rs.forEach(r => (r.error || !r.data || !r.data.length) ? fail++ : ok++);
+  }
+  return {ok, fail};
+}
+async function deleteAllFlow(table, label, ids) {
+  if (!ids.length) return toast('Nothing to delete.', 'err');
+  if (prompt(`This will try to delete ALL ${ids.length} ${label}.\nRows that already have stock, sales or indent history cannot be deleted and will be skipped.\n\nType DELETE to confirm:`) !== 'DELETE') return;
+  const r = await bulkDelete(table, ids);
+  toast(`${r.ok} deleted${r.fail ? `, ${r.fail} skipped (have history or no permission)` : ''}.`, r.fail && !r.ok ? 'err' : 'ok');
+}
+async function refreshLocations() {
+  const fresh = await db.from('locations').select('*').eq('is_active', true).order('type').order('name');
+  if (!fresh.error) { allLocations = fresh.data; buildLoginAs(); }
+}
 async function renderMaster(v) {
   v.innerHTML = `<div class="card"><h2>Master Data</h2>
     <p class="sub">Bulk import and maintain products and locations. Importing again updates existing rows (matched by SKU or name for products, by Code for locations) and adds new ones.</p>
@@ -608,8 +653,28 @@ async function mdProducts(b) {
     <p class="sub">Columns: <b>Product Name</b> (required), SKU, Unit, MRP, Active (Yes/No). Blank cells keep the existing value.</p>
     <div class="row"><div><label>Products sheet (.xlsx / .csv)</label><input type="file" id="prFile" accept=".xlsx,.xls,.csv"></div>
     <button class="btn" id="prGo">Import / Update</button><button class="btn alt" id="prTpl">Download Template</button><button class="btn alt" id="prExp">Export Current</button></div><div id="prMsg"></div></div>
-    <div class="card"><h3>${products.length} products</h3><div class="tablewrap"><table><thead><tr><th>Product Name</th><th>SKU</th><th>Unit</th><th class="n">MRP</th><th>Active</th></tr></thead><tbody>
-    ${products.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.sku || '')}</td><td>${esc(p.unit || '')}</td><td class="n">${p.mrp == null ? '' : fmt(p.mrp)}</td><td>${p.is_active ? 'Yes' : 'No'}</td></tr>`).join('')}</tbody></table></div></div>`;
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0">${products.length} products</h3>
+    <div class="row"><button class="btn" id="prAdd">+ Add Product</button><button class="btn danger" id="prDelAll">Delete All</button></div></div><div class="tablewrap"><table><thead><tr><th>Product Name</th><th>SKU</th><th>Unit</th><th class="n">MRP</th><th>Active</th><th></th></tr></thead><tbody>
+    ${products.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.sku || '')}</td><td>${esc(p.unit || '')}</td><td class="n">${p.mrp == null ? '' : fmt(p.mrp)}</td><td>${p.is_active ? 'Yes' : 'No'}</td><td style="white-space:nowrap"><button class="mini" data-e="${p.id}">Edit</button><button class="mini d" data-d="${p.id}">Delete</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  const pForm = (title, p) => openForm(title, [
+    {k: 'name', label: 'Product Name', value: p?.name}, {k: 'sku', label: 'SKU', value: p?.sku}, {k: 'unit', label: 'Unit', value: p?.unit || 'pcs'},
+    {k: 'mrp', label: 'MRP', type: 'number', value: p?.mrp}, {k: 'act', label: 'Active', value: p ? (p.is_active ? 'yes' : 'no') : 'yes', options: [['yes', 'Yes'], ['no', 'No']]}], async v => {
+    if (!v.name) throw new Error('Product Name is required.');
+    const row = {name: v.name, sku: v.sku || null, unit: v.unit || 'pcs', mrp: v.mrp === '' ? null : Number(v.mrp), is_active: v.act === 'yes'};
+    if (row.mrp !== null && !Number.isFinite(row.mrp)) throw new Error('Invalid MRP.');
+    const r = p ? await db.from('products').update(row).eq('id', p.id).select('id') : await db.from('products').insert(row).select('id');
+    if (r.error) throw r.error; if (!r.data.length) throw new Error('Not allowed for your role.');
+    toast('Saved.'); await applySession();
+  });
+  $('#prAdd').onclick = () => pForm('Add Product');
+  $('#prDelAll').onclick = async () => { await deleteAllFlow('products', 'products', products.map(p => p.id)); await applySession(); };
+  b.querySelectorAll('[data-e]').forEach(x => x.onclick = () => pForm('Edit Product', products.find(p => p.id === x.dataset.e)));
+  b.querySelectorAll('[data-d]').forEach(x => x.onclick = async () => {
+    const p = products.find(q => q.id === x.dataset.d); if (!confirm(`Delete "${p.name}"?`)) return;
+    const r = await db.from('products').delete().eq('id', p.id).select('id');
+    if (r.error) return toast(delErr(r.error), 'err'); if (!r.data.length) return toast('Not allowed for your role.', 'err');
+    toast('Deleted.'); await applySession();
+  });
   $('#prTpl').onclick = () => downloadSheet('Products_Template.xlsx', [['Product Name', 'SKU', 'Unit', 'MRP', 'Active'], ['Sample product', 'SKU-001', 'pcs', 500, 'Yes']]);
   $('#prExp').onclick = () => exportSheet('Products_Export.xlsx', [['Product Name', 'SKU', 'Unit', 'MRP', 'Active']].concat(products.map(p => [p.name, p.sku || '', p.unit || '', p.mrp ?? '', p.is_active ? 'Yes' : 'No'])));
   $('#prGo').onclick = async () => {
@@ -648,8 +713,30 @@ async function mdLocations(b) {
     <p class="sub">Columns: <b>Code</b>, <b>Name</b>, <b>Type</b> (Warehouse / Sales Point), Opening Date (yyyy-mm-dd), Active (Yes/No). ${canEdit ? '' : '<b>Only Super Admin / Admin can change locations.</b>'}</p>
     <div class="row"><div><label>Locations sheet (.xlsx / .csv)</label><input type="file" id="lcFile" accept=".xlsx,.xls,.csv"></div>
     <button class="btn" id="lcGo" ${canEdit ? '' : 'disabled'}>Import / Update</button><button class="btn alt" id="lcTpl">Download Template</button><button class="btn alt" id="lcExp">Export Current</button></div><div id="lcMsg"></div></div>
-    <div class="card"><h3>${locs.length} locations</h3><div class="tablewrap"><table><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Opening Date</th><th>Active</th></tr></thead><tbody>
-    ${locs.map(l => `<tr><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${tname(l.type)}</td><td>${l.opening_date || ''}</td><td>${l.is_active ? 'Yes' : 'No'}</td></tr>`).join('')}</tbody></table></div></div>`;
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0">${locs.length} locations</h3>
+    <div class="row"><button class="btn" id="lcAdd" ${canEdit ? '' : 'disabled'}>+ Add Location</button><button class="btn danger" id="lcDelAll" ${canEdit ? '' : 'disabled'}>Delete All</button></div></div><div class="tablewrap"><table><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Opening Date</th><th>Active</th><th></th></tr></thead><tbody>
+    ${locs.map(l => `<tr><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${tname(l.type)}</td><td>${l.opening_date || ''}</td><td>${l.is_active ? 'Yes' : 'No'}</td><td style="white-space:nowrap"><button class="mini" data-e="${l.id}" ${canEdit ? '' : 'disabled'}>Edit</button><button class="mini d" data-d="${l.id}" ${canEdit ? '' : 'disabled'}>Delete</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  const after = async () => { await refreshLocations(); await applySession(); };
+  const lForm = (title, l) => openForm(title, [
+    {k: 'code', label: 'Code', value: l?.code}, {k: 'name', label: 'Name', value: l?.name},
+    l ? {k: 'type', label: 'Type (cannot be changed)', value: tname(l.type), readonly: true} : {k: 'type', label: 'Type', value: 'warehouse', options: [['warehouse', 'Warehouse'], ['sales_point', 'Sales Point']]},
+    {k: 'od', label: 'Opening Date', type: 'date', value: l?.opening_date}, {k: 'act', label: 'Active', value: l ? (l.is_active ? 'yes' : 'no') : 'yes', options: [['yes', 'Yes'], ['no', 'No']]}], async v => {
+    if (!v.code || !v.name) throw new Error('Code and Name are required.');
+    const row = {code: v.code.toUpperCase(), name: v.name, opening_date: v.od || null, is_active: v.act === 'yes'};
+    if (!l) row.type = v.type;
+    const r = l ? await db.from('locations').update(row).eq('id', l.id).select('id') : await db.from('locations').insert(row).select('id');
+    if (r.error) throw r.error; if (!r.data.length) throw new Error('Not allowed for your role.');
+    toast('Saved.'); await after();
+  });
+  $('#lcAdd').onclick = () => lForm('Add Location');
+  $('#lcDelAll').onclick = async () => { await deleteAllFlow('locations', 'locations', locs.map(l => l.id)); await after(); };
+  b.querySelectorAll('[data-e]').forEach(x => x.onclick = () => lForm('Edit Location', locs.find(l => l.id === x.dataset.e)));
+  b.querySelectorAll('[data-d]').forEach(x => x.onclick = async () => {
+    const l = locs.find(q => q.id === x.dataset.d); if (!confirm(`Delete ${l.code} - ${l.name}?`)) return;
+    const r = await db.from('locations').delete().eq('id', l.id).select('id');
+    if (r.error) return toast(delErr(r.error), 'err'); if (!r.data.length) return toast('Not allowed for your role.', 'err');
+    toast('Deleted.'); await after();
+  });
   $('#lcTpl').onclick = () => downloadSheet('Locations_Template.xlsx', [['Code', 'Name', 'Type', 'Opening Date', 'Active'], ['SP-08', 'New Outlet', 'Sales Point', '', 'Yes']]);
   $('#lcExp').onclick = () => exportSheet('Locations_Export.xlsx', [['Code', 'Name', 'Type', 'Opening Date', 'Active']].concat(locs.map(l => [l.code, l.name, tname(l.type), l.opening_date || '', l.is_active ? 'Yes' : 'No'])));
   $('#lcGo').onclick = async () => {
@@ -677,9 +764,7 @@ async function mdLocations(b) {
       if (ins.length) { const r = await db.from('locations').insert(ins); if (r.error) throw r.error; }
       if (upd.length) { const r = await db.from('locations').upsert(upd, {onConflict: 'id'}); if (r.error) throw r.error; }
       toast(`${ins.length} added, ${upd.length} updated.`);
-      const fresh = await db.from('locations').select('*').eq('is_active', true).order('type').order('name');
-      if (!fresh.error) { allLocations = fresh.data; buildLoginAs(); }
-      await applySession();
+      await after();
     } catch (e) { note(msg, esc(e.message || e), 'err'); }
     finally { btn.disabled = false; }
   };
