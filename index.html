@@ -680,6 +680,55 @@ async function editSalesDay(loc, date, done) {
   };
 }
 
+// ---------- view / Excel download of one sales day ----------
+async function salesDayRows(loc, date) {
+  const rows = await fetchAll((a, b) => db.from('daily_sales').select('product_id,qty').eq('location_id', loc).eq('sale_date', date).order('id').range(a, b));
+  return rows.map(r => ({p: products.find(x => x.id === r.product_id), pid: r.product_id, qty: Number(r.qty)}))
+    .sort((x, y) => prodName(x.pid).localeCompare(prodName(y.pid)));
+}
+const sheetName = n => String(n).replace(/[\\\/?*\[\]:]/g, '').slice(0, 31) || 'Sheet';
+const dayAoa = rows => [['Product Code', 'Product Name', 'Sales Data']].concat(rows.map(r => [r.p?.sku || '', prodName(r.pid), r.qty]));
+const safeFile = s => String(s).replace(/[^\w\-]+/g, '_');
+async function downloadSalesDay(loc, date) {
+  const rows = await salesDayRows(loc, date);
+  if (!rows.length) return toast(`No sales found for ${date}.`, 'err');
+  downloadSheet(`Sales_${safeFile(locName(loc))}_${date}.xlsx`, dayAoa(rows));
+}
+async function downloadSalesDayAll(date, sps) {
+  const rows = await fetchAll((a, b) => db.from('daily_sales').select('location_id,product_id,qty').in('location_id', sps.map(l => l.id)).eq('sale_date', date).order('id').range(a, b));
+  if (!rows.length) return toast(`No sales found for ${date}.`, 'err');
+  const wb = XLSX.utils.book_new(), used = new Set();
+  sps.forEach(l => {
+    const mine = rows.filter(r => r.location_id === l.id).map(r => ({p: products.find(x => x.id === r.product_id), pid: r.product_id, qty: Number(r.qty)}))
+      .sort((x, y) => prodName(x.pid).localeCompare(prodName(y.pid)));
+    if (!mine.length) return;
+    let n = sheetName(l.name), k = 2; while (used.has(n)) n = sheetName(l.name).slice(0, 28) + ' ' + k++; used.add(n);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dayAoa(mine)), n);
+  });
+  XLSX.writeFile(wb, `Sales_All_Outlets_${date}.xlsx`);
+}
+async function viewSalesDay(loc, date) {
+  const rows = await salesDayRows(loc, date);
+  const lk = (await getLocks([loc], date, date)).get(loc + '|' + date);
+  const ov = document.createElement('div'); ov.id = 'ov';
+  ov.innerHTML = `<div class="box" style="width:min(760px,96vw)"><h3>Sales — ${esc(date)} ${lk ? '<span class="lkb on">🔒 Locked</span>' : ''}</h3>
+    <p class="sub">${esc(locName(loc))} · <span id="vwTot"></span></p>
+    <div class="row" style="margin-bottom:10px"><div style="flex:1"><label>Search product</label><input type="text" id="vwQ" placeholder="type to filter"></div>
+      <label style="display:flex;align-items:center;gap:6px;margin:0 0 8px"><input type="checkbox" id="vwSold" style="min-width:0;width:auto"> Only sold (qty &gt; 0)</label></div>
+    <div class="tablewrap" style="max-height:52vh;overflow:auto"><table style="min-width:0"><thead><tr><th>Code</th><th>Product</th><th class="n">Sales qty</th></tr></thead><tbody id="vwB"></tbody></table></div>
+    <div class="row" style="margin-top:14px"><button class="btn" id="vwX">⬇ Download Excel</button><button class="btn alt" id="vwC">Close</button></div></div>`;
+  document.body.appendChild(ov);
+  const draw = () => {
+    const t = norm($('#vwQ').value), only = $('#vwSold').checked;
+    const list = rows.filter(r => (!t || norm(prodName(r.pid)).includes(t) || norm(r.p?.sku || '').includes(t)) && (!only || r.qty > 0));
+    $('#vwB').innerHTML = list.map(r => `<tr><td>${esc(r.p?.sku || '')}</td><td>${esc(prodName(r.pid))}</td><td class="n">${fmt(r.qty)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">No rows.</td></tr>';
+    $('#vwTot').textContent = `${list.length} product(s) · Units total: ${fmt(list.reduce((s, r) => s + r.qty, 0))}`;
+  };
+  draw(); $('#vwQ').oninput = draw; $('#vwSold').onchange = draw;
+  $('#vwC').onclick = () => ov.remove();
+  $('#vwX').onclick = () => downloadSalesDay(loc, date).catch(e => toast(e.message || String(e), 'err'));
+}
+
 // ================================= DAILY SALES =================================
 async function renderSales(v) {
   const sps = locations.filter(l => l.type === 'sales_point');
@@ -698,20 +747,22 @@ async function renderSales(v) {
     const [rows, locks] = await Promise.all([salesSince(since, loc), getLocks([loc], since)]);
     const byDate = new Map(); rows.forEach(r => { const o = byDate.get(r.sale_date) || {n: 0, u: 0}; if (Number(r.qty) > 0) o.n++; o.u += Number(r.qty); byDate.set(r.sale_date, o); });
     const dates = [...byDate.keys()].sort().reverse();
-    const ctl = ce ? `<div class="row" style="margin-bottom:14px"><div><label>Lock / unlock one date for ALL sales points</label><input type="date" id="lkDate" value="${today()}" max="${today()}"></div>
-      <button class="btn alt" id="lkAll">🔒 Lock all outlets</button>${canUnlock() ? '<button class="btn alt" id="ulkAll">🔓 Unlock all outlets</button>' : ''}</div>` : '';
+    const ctl = ce ? `<div class="row" style="margin-bottom:14px"><div><label>Lock / unlock / download one date for ALL sales points</label><input type="date" id="lkDate" value="${today()}" max="${today()}"></div>
+      <button class="btn alt" id="lkAll">🔒 Lock all outlets</button>${canUnlock() ? '<button class="btn alt" id="ulkAll">🔓 Unlock all outlets</button>' : ''}<button class="btn alt" id="xlAll">⬇ Excel (all outlets)</button></div>` : '';
     $('#slRecent').innerHTML = `<div class="card"><h3>Last 30 days — ${esc(locName(loc))}</h3>${ctl}
       ${salesLockMissing ? '<div class="note warn">Lock feature is not active yet: run <b>uol_sales_lock.sql</b> in Supabase SQL Editor once.</div>' : ''}
-      <div class="tablewrap"><table><thead><tr><th>Date</th><th class="n">Products sold</th><th class="n">Units sold</th><th>Status</th>${ce ? '<th style="text-align:right">Actions</th>' : ''}</tr></thead><tbody>
+      <div class="tablewrap"><table><thead><tr><th>Date</th><th class="n">Products sold</th><th class="n">Units sold</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody>
       ${dates.map(d => { const lk = locks.get(loc + '|' + d);
         return `<tr><td>${d}</td><td class="n">${byDate.get(d).n}</td><td class="n">${fmt(byDate.get(d).u)}</td>
         <td>${lk ? `<span class="lkb on" title="${esc((lk.locked_by || '') + ' · ' + new Date(lk.locked_at).toLocaleString('en-GB', {timeZone: TZ}))}">🔒 Locked</span>` : '<span class="lkb off">Open</span>'}</td>
-        ${ce ? `<td style="text-align:right;white-space:nowrap"><button class="mini" data-a="edit" data-d="${d}" ${lk ? 'disabled title="Locked"' : ''}>Edit</button><button class="mini d" data-a="del" data-d="${d}" ${lk ? 'disabled title="Locked"' : ''}>Delete</button>${lk ? (canUnlock() ? `<button class="mini" data-a="unlock" data-d="${d}">🔓 Unlock</button>` : '') : `<button class="mini" data-a="lock" data-d="${d}" ${salesLockMissing ? 'disabled' : ''}>🔒 Lock</button>`}</td>` : ''}</tr>`; }).join('') || `<tr><td colspan="${ce ? 5 : 4}" class="muted">No sales uploaded for this period.</td></tr>`}
+        <td style="text-align:right;white-space:nowrap"><button class="mini" data-a="view" data-d="${d}">View</button><button class="mini" data-a="xls" data-d="${d}">⬇ Excel</button>${ce ? `<button class="mini" data-a="edit" data-d="${d}" ${lk ? 'disabled title="Locked"' : ''}>Edit</button><button class="mini d" data-a="del" data-d="${d}" ${lk ? 'disabled title="Locked"' : ''}>Delete</button>${lk ? (canUnlock() ? `<button class="mini" data-a="unlock" data-d="${d}">🔓 Unlock</button>` : '') : `<button class="mini" data-a="lock" data-d="${d}" ${salesLockMissing ? 'disabled' : ''}>🔒 Lock</button>`}` : ''}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">No sales uploaded for this period.</td></tr>'}
       </tbody></table></div></div>`;
-    if (!ce) return;
     $('#slRecent').querySelectorAll('button[data-a]').forEach(b => b.onclick = async () => {
       const d = b.dataset.d, a = b.dataset.a;
       try {
+        if (a === 'view') return await viewSalesDay(loc, d);
+        if (a === 'xls') return await downloadSalesDay(loc, d);
+        if (!ce) return;
         if (a === 'edit') return await editSalesDay(loc, d, recent);
         if (a === 'del') { if (await deleteSalesDay(loc, d)) { toast(`Deleted sales of ${d}.`); await recent(); } return; }
         if (a === 'lock') { if (!confirm(`Lock ${locName(loc)} sales of ${d}? Nobody can edit, delete or re-upload it until an Admin unlocks it.`)) return; await setLocks([loc], d, true); toast(`${d} locked.`); }
@@ -719,6 +770,7 @@ async function renderSales(v) {
         await recent();
       } catch (e) { toast(e.message || String(e), 'err'); }
     });
+    if (!ce) return;
     const bulk = async lockIt => {
       const d = $('#lkDate').value; if (!d) return toast('Choose a date first.', 'err');
       if (!confirm(`${lockIt ? 'Lock' : 'Unlock'} ${d} for ALL ${sps.length} sales points?`)) return;
@@ -727,6 +779,7 @@ async function renderSales(v) {
     };
     $('#lkAll').onclick = () => bulk(true);
     if ($('#ulkAll')) $('#ulkAll').onclick = () => bulk(false);
+    $('#xlAll').onclick = () => { const d = $('#lkDate').value; if (!d) return toast('Choose a date first.', 'err'); downloadSalesDayAll(d, sps).catch(e => toast(e.message || String(e), 'err')); };
   };
   $('#slLoc').onchange = recent;
   $('#slGo').onclick = async () => {
