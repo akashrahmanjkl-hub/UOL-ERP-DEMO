@@ -60,6 +60,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 tr.total td{font-weight:700;background:#f7faf8}
 .badge{display:inline-block;border-radius:999px;padding:2px 10px;font-weight:700;font-size:12px}
 .b-give{background:var(--green-soft);color:#166534}.b-partial{background:var(--amber-soft);color:var(--amber)}
+.b-dispatched{background:var(--blue-soft);color:var(--blue)}.b-cancelled{background:#e5e7eb;color:#374151}
 .b-do_not_give{background:var(--red-soft);color:var(--red)}.b-decided{background:var(--blue-soft);color:var(--blue)}.b-received{background:var(--green-soft);color:#166534}
 .note{border-radius:10px;padding:10px 12px;margin:10px 0}
 .note.info{background:var(--blue-soft);color:#075985}.note.warn{background:var(--amber-soft);color:#78350f}
@@ -291,11 +292,12 @@ const TABS = [
   {id: 'sales', label: 'Daily Sales', render: renderSales},
   {id: 'indent', label: 'Indent Management', central: true, render: renderIndent},
   {id: 'plan', label: 'Distribution & Forecasting', central: true, render: renderPlan},
+  {id: 'challan', label: 'Delivery Challan', render: renderChallan},
   {id: 'master', label: 'Master Data', central: true, render: renderMaster}
 ];
 function buildTabs() {
   $('#tabs').innerHTML = TABS.filter(t => t.central ? isCentral() : true)
-    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭'})[t.id] || '•'}</i>${t.label}</button>`).join('');
+    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
@@ -474,12 +476,12 @@ async function showIndent(id) {
   ]);
   if (h.error) throw h.error; if (l.error) throw l.error;
   const ind = h.data, lines = l.data.sort((a, b) => prodName(a.product_id).localeCompare(prodName(b.product_id)));
-  const open = ind.status === 'decided';
+  const open = false;   // stock now moves through Delivery Challans, not through the indent
   const tot = k => lines.reduce((s, r) => s + Number(r[k]), 0);
   const cnt = d => lines.filter(r => r.decision === d).length;
   const whs = locations.filter(x => x.type === 'warehouse');
   out.innerHTML = `<div class="card"><h2>${esc(ind.indent_no)} — ${esc(locName(ind.location_id))}
-      <span class="badge b-${ind.status}">${open ? 'Awaiting receipt' : 'Received'}</span></h2>
+      <span class="badge b-${ind.status}">${{decided: 'Indent saved', received: 'Received (old flow)', cancelled: 'Cancelled'}[ind.status] || ind.status}</span></h2>
     <p class="sub">Indent date ${ind.indent_date}${ind.odoo_ref ? ' · Odoo ref ' + esc(ind.odoo_ref) : ''} · Cover target ${ind.cover_days} days · Sales analysed over the last ${ind.sales_window_days} days</p>
     <div class="note info">Warehouse stock shown is the merged total of: <b>${(ind.warehouses_merged || []).map(esc).join(', ')}</b>.</div>
     <div class="grid" style="margin:12px 0">
@@ -501,7 +503,7 @@ async function showIndent(id) {
       <button class="btn alt" id="inXls">Download Decision (Excel)</button>
       ${open ? `<div><label>Issued from warehouse</label><select id="inSrc">${whs.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
         <button class="btn" id="inRecv">Mark as Received</button>`
-        : `<span class="muted">Received on ${new Date(ind.received_at).toLocaleString('en-GB', {timeZone: TZ})} from ${esc(locName(ind.source_warehouse_id))}.</span>`}
+        : `<span class="muted">${ind.status === 'received' ? `Received on ${new Date(ind.received_at).toLocaleString('en-GB', {timeZone: TZ})} from ${esc(locName(ind.source_warehouse_id))}.` : 'Stock moves through Distribution &amp; Forecasting → Delivery Challan.'}</span>`}
     </div><div id="inRecvMsg"></div></div>`;
   $('#inXls').onclick = () => downloadSheet(`${ind.indent_no}_Decision.xlsx`,
     [['Product Name', 'Requested Qty', 'Recommended Qty', 'Decision', 'Reason']].concat(lines.map(r => [prodName(r.product_id), Number(r.requested_qty), Number(r.suggested_qty), r.decision, r.reason])));
@@ -788,8 +790,12 @@ function allocate(W, need, w) {
 async function renderPlan(v) {
   const sps = locations.filter(l => l.type === 'sales_point'), act = products.filter(p => p.is_active);
   const [ls, sl] = await Promise.all([liveStock(), salesSince(addDays(today(), -(WINDOW_DAYS - 1)))]);
-  const stock = new Map(), wh = new Map();
-  ls.forEach(r => { const q = Number(r.live_qty); if (r.location_type === 'warehouse') wh.set(r.product_id, (wh.get(r.product_id) || 0) + q); else stock.set(r.location_id + '|' + r.product_id, q); });
+  const tq = await db.from('v_in_transit').select('location_id,product_id,qty').limit(5000);
+  if (tq.error) throw new Error(tq.error.code === '42P01' ? 'Run uol_step2_challan_grn.sql in the Supabase SQL Editor first.' : tq.error.message);
+  const transit = new Map(tq.data.map(r => [r.location_id + '|' + r.product_id, Number(r.qty)]));
+  const whs = locations.filter(l => l.type === 'warehouse');
+  const stock = new Map(), wh = new Map(), whLoc = new Map();
+  ls.forEach(r => { const q = Number(r.live_qty); if (r.location_type === 'warehouse') { wh.set(r.product_id, (wh.get(r.product_id) || 0) + q); whLoc.set(r.location_id + '|' + r.product_id, q); } else stock.set(r.location_id + '|' + r.product_id, q); });
   const sold = new Map(); sl.forEach(r => { const k = r.location_id + '|' + r.product_id; sold.set(k, (sold.get(k) || 0) + Number(r.qty)); });
   const ind = await db.from('indents').select('id,location_id').order('indent_date', {ascending: false}).order('created_at', {ascending: false}).limit(2000);
   if (ind.error) throw ind.error;
@@ -798,21 +804,22 @@ async function renderPlan(v) {
   if (ids.length) (await fetchAll((a, b) => db.from('indent_lines').select('indent_id,product_id,requested_qty').in('indent_id', ids).order('id').range(a, b)))
     .forEach(r => req.set(idLoc.get(r.indent_id) + '|' + r.product_id, Number(r.requested_qty)));
   v.innerHTML = `<div class="card"><h2>Distribution &amp; Forecasting</h2>
-    <p class="sub">Supply for each sales point = Avg daily sales × (Delivery gap + Buffer) − Current stock. If the warehouse has less than the total demand, it is shared between sales points in proportion to their sales rate. Avg daily sales = last ${WINDOW_DAYS} days ÷ ${WINDOW_DAYS}.</p>
+    <p class="sub">Supply for each sales point = Avg daily sales × (Delivery gap + Buffer) − (Current stock + In-transit). If the warehouse has less than the total demand, it is shared between sales points in proportion to their sales rate. Avg daily sales = last ${WINDOW_DAYS} days ÷ ${WINDOW_DAYS}.</p>
     <div class="row"><div><label>View</label><select id="plView"><option value="">All sales points (summary)</option>${sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
+    <div><label>Source warehouse</label><select id="plSrc"><option value="">All warehouses (merged)</option>${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
     <div><label>Delivery gap (days): <b id="gapV">3</b></label><input type="range" id="plGap" min="1" max="30" value="3"></div>
     <div><label>Buffer (days): <b id="bufV">2</b></label><input type="range" id="plBuf" min="0" max="30" value="1" disabled></div>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plAuto" checked> Auto buffer = <input type="number" id="plPct" value="25" min="0" max="100" style="min-width:0;width:64px;padding:5px 6px">% of gap (min 1 day)</label>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plCap"> Do not supply more than indent qty</label>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plHide" checked> Hide products with no supply</label>
-    <button class="btn alt" id="plExp">Export Plan (Excel)</button></div></div><div id="plOut"></div>`;
+    <button class="btn alt" id="plExp">Export Plan (Excel)</button><button class="btn" id="plMk">Create Challan(s)</button></div></div><div id="plOut"></div>`;
   let cur = null;
   const compute = () => {
     const gap = +$('#plGap').value, buf = +$('#plBuf').value, cap = $('#plCap').checked;
     return act.map(p => {
-      const rows = sps.map(sp => { const k = sp.id + '|' + p.id, avg = (sold.get(k) || 0) / WINDOW_DAYS, st = stock.get(k) || 0, rq = req.get(k) || 0;
-        let need = Math.max(0, Math.ceil(avg * (gap + buf) - st - 1e-9)); if (cap) need = Math.min(need, Math.ceil(rq)); return {sp, avg, st, rq, need}; });
-      const W = Math.max(0, wh.get(p.id) || 0), give = allocate(W, rows.map(r => r.need), rows.map(r => r.avg));
+      const rows = sps.map(sp => { const k = sp.id + '|' + p.id, avg = (sold.get(k) || 0) / WINDOW_DAYS, st = stock.get(k) || 0, rq = req.get(k) || 0, tr = transit.get(k) || 0;
+        let need = Math.max(0, Math.ceil(avg * (gap + buf) - st - tr - 1e-9)); if (cap) need = Math.min(need, Math.ceil(rq)); return {sp, avg, st, tr, rq, need}; });
+      const src = $('#plSrc').value, W = Math.max(0, (src ? whLoc.get(src + '|' + p.id) : wh.get(p.id)) || 0), give = allocate(W, rows.map(r => r.need), rows.map(r => r.avg));
       rows.forEach((r, i) => r.give = give[i]);
       return {p, W, rows, need: rows.reduce((a, r) => a + r.need, 0), give: give.reduce((a, b) => a + b, 0)};
     });
@@ -834,12 +841,32 @@ async function renderPlan(v) {
     } else {
       const i = sps.findIndex(l => l.id === loc), list = cur.map(x => ({x, r: x.rows[i]})).filter(o => !hide || o.r.need > 0 || o.r.give > 0);
       const stt = r => r.need === 0 ? ['Stock OK', 'b-received'] : r.give >= r.need ? ['Supply', 'b-give'] : r.give > 0 ? ['Partial', 'b-partial'] : ['No warehouse stock', 'b-do_not_give'];
-      out.innerHTML = `<div class="card"><h3>${esc(sps[i].name)}</h3><div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Current stock</th><th class="n">Avg daily sales</th><th class="n">Days cover</th><th class="n">Indent qty</th><th class="n">Need</th><th class="n">Warehouse stock</th><th class="n">Suggested supply</th><th>Status</th><th class="n">Days cover after delivery</th></tr></thead><tbody>
-      ${list.map(({x, r}) => { const s2 = stt(r); return `<tr><td>${esc(x.p.name)}</td><td class="n">${fmt(r.st)}</td><td class="n">${fmt(r.avg)}</td><td class="n">${r.avg > 0 ? fmt(r.st / r.avg) : '—'}</td><td class="n">${fmt(r.rq)}</td><td class="n">${fmt(r.need)}</td><td class="n">${fmt(x.W)}</td><td class="n"><b>${fmt(r.give)}</b></td><td><span class="badge ${s2[1]}">${s2[0]}</span></td><td class="n">${r.avg > 0 ? fmt((r.st + r.give) / r.avg) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="10" class="muted">No supply needed with these settings.</td></tr>'}
+      out.innerHTML = `<div class="card"><h3>${esc(sps[i].name)}</h3><div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Current stock</th><th class="n">In-transit</th><th class="n">Avg daily sales</th><th class="n">Days cover</th><th class="n">Indent qty</th><th class="n">Need</th><th class="n">Warehouse stock</th><th class="n">Suggested supply</th><th>Status</th><th class="n">Days cover after delivery</th></tr></thead><tbody>
+      ${list.map(({x, r}) => { const s2 = stt(r); return `<tr><td>${esc(x.p.name)}</td><td class="n">${fmt(r.st)}</td><td class="n">${r.tr ? fmt(r.tr) : '<span class="muted">0</span>'}</td><td class="n">${fmt(r.avg)}</td><td class="n">${r.avg > 0 ? fmt(r.st / r.avg) : '—'}</td><td class="n">${fmt(r.rq)}</td><td class="n">${fmt(r.need)}</td><td class="n">${fmt(x.W)}</td><td class="n"><b>${fmt(r.give)}</b></td><td><span class="badge ${s2[1]}">${s2[0]}</span></td><td class="n">${r.avg > 0 ? fmt((r.st + r.tr + r.give) / r.avg) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="11" class="muted">No supply needed with these settings.</td></tr>'}
       </tbody></table></div></div>`;
     }
   };
-  ['plView', 'plGap', 'plBuf', 'plCap', 'plHide', 'plAuto', 'plPct'].forEach(id => $('#' + id).oninput = draw);
+  ['plView', 'plSrc', 'plGap', 'plBuf', 'plCap', 'plHide', 'plAuto', 'plPct'].forEach(id => $('#' + id).oninput = draw);
+  $('#plMk').onclick = () => {
+    const src = $('#plSrc').value, loc = $('#plView').value;
+    if (!src) return toast('Select one source warehouse first (not "All warehouses").', 'err');
+    const jobs = sps.map((sp, i) => ({sp, lines: cur.filter(x => x.rows[i].give > 0).map(x => ({product_id: x.p.id, qty: x.rows[i].give}))}))
+      .filter(j => j.lines.length && (!loc || j.sp.id === loc));
+    if (!jobs.length) return toast('Nothing to dispatch with these settings.', 'err');
+    const units = jobs.reduce((a, j) => a + j.lines.reduce((b, l) => b + l.qty, 0), 0);
+    openForm(`Create ${jobs.length} challan(s) from ${locName(src)}`, [
+      {k: 'info', label: 'Summary', value: `${jobs.length} sales point(s), ${fmt(units)} units. Warehouse stock is deducted now; the sales point gets it when it is received.`, readonly: true},
+      {k: 'date', label: 'Challan date', type: 'date', value: today()}, {k: 'note', label: 'Note (optional)'}], async v2 => {
+      const made = [];
+      try {
+        for (const j of jobs) {
+          const {data, error} = await db.rpc('create_challan', {p_from: src, p_to: j.sp.id, p_date: v2.date || today(), p_note: v2.note || null, p_lines: j.lines});
+          if (error) throw new Error(`${j.sp.name}: ${error.message}`); made.push(data);
+        }
+      } catch (e) { throw new Error(e.message + (made.length ? ` (Already created: ${made.join(', ')})` : '')); }
+      toast(`${made.length} challan(s) created: ${made.join(', ')}`); await showTab('challan');
+    });
+  };
   $('#plExp').onclick = () => {
     const wb = XLSX.utils.book_new(), sheetName = n => n.replace(/[\\\/?*\[\]:]/g, '').slice(0, 31);
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product Code', 'Product Name', 'Warehouse Stock', 'Total Need'].concat(sps.map(l => l.name), ['Total Supply'])]
@@ -848,6 +875,74 @@ async function renderPlan(v) {
     XLSX.writeFile(wb, `Distribution_Plan_${today()}.xlsx`);
   };
   draw();
+}
+
+// ============================ DELIVERY CHALLAN / GRN ============================
+async function renderChallan(v) {
+  const q = await db.from('challans').select('*').order('created_at', {ascending: false}).limit(150);
+  if (q.error) throw new Error(q.error.code === '42P01' ? 'Run uol_step2_challan_grn.sql in the Supabase SQL Editor first.' : q.error.message);
+  const cs = q.data, ids = cs.map(c => c.id), byC = new Map();
+  (ids.length ? await fetchAll((a, b) => db.from('challan_lines').select('challan_id,product_id,dispatch_qty,received_qty').in('challan_id', ids).order('id').range(a, b)) : [])
+    .forEach(l => { if (!byC.has(l.challan_id)) byC.set(l.challan_id, []); byC.get(l.challan_id).push(l); });
+  const canRecv = c => isCentral() || session.locationId === c.to_location_id;
+  const sum = (arr, k) => arr.reduce((a, l) => a + Number(l[k] || 0), 0);
+  v.innerHTML = `<div class="card"><h2>Delivery Challan &amp; Receiving</h2>
+    <p class="sub">Challans are created from <b>Distribution &amp; Forecasting</b>. Warehouse stock goes down when the challan is created; the sales point's stock goes up only when the goods are received here. Goods on the way show as <b>In-transit</b> in the plan.</p>
+    <div class="row"><div><label>Status</label><select id="chSt"><option value="dispatched">In transit (to receive)</option><option value="received">Received</option><option value="cancelled">Cancelled</option><option value="">All</option></select></div></div></div><div id="chList"></div>`;
+  const draw = () => {
+    const st = $('#chSt').value, list = cs.filter(c => !st || c.status === st);
+    $('#chList').innerHTML = `<div class="card"><div class="tablewrap"><table><thead><tr><th>Challan no</th><th>Date</th><th>From</th><th>To</th><th>Status</th><th class="n">Products</th><th class="n">Dispatched</th><th class="n">Received</th><th></th></tr></thead><tbody>
+    ${list.map(c => { const ls2 = byC.get(c.id) || []; return `<tr><td><b>${esc(c.challan_no)}</b></td><td>${c.challan_date}</td><td>${esc(locName(c.from_location_id))}</td><td>${esc(locName(c.to_location_id))}</td>
+      <td><span class="badge b-${c.status}">${{dispatched: 'In transit', received: 'Received', cancelled: 'Cancelled'}[c.status]}</span></td><td class="n">${ls2.length}</td><td class="n">${fmt(sum(ls2, 'dispatch_qty'))}</td><td class="n">${c.status === 'received' ? fmt(sum(ls2, 'received_qty')) : ''}</td>
+      <td style="white-space:nowrap"><button class="mini" data-v="${c.id}">${c.status === 'dispatched' && canRecv(c) ? 'Receive' : 'View'}</button><button class="mini" data-p="${c.id}">Print</button>${c.status === 'dispatched' && isCentral() ? `<button class="mini d" data-c="${c.id}">Cancel</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="9" class="muted">No challans found.</td></tr>'}
+    </tbody></table></div></div>`;
+    $('#chList').querySelectorAll('[data-v]').forEach(b => b.onclick = () => challanDialog(cs.find(c => c.id === b.dataset.v), byC.get(b.dataset.v) || [], canRecv));
+    $('#chList').querySelectorAll('[data-p]').forEach(b => b.onclick = () => printChallan(cs.find(c => c.id === b.dataset.p), byC.get(b.dataset.p) || []));
+    $('#chList').querySelectorAll('[data-c]').forEach(b => b.onclick = async () => {
+      const c = cs.find(x => x.id === b.dataset.c); if (!confirm(`Cancel ${c.challan_no}? The stock goes back to ${locName(c.from_location_id)}.`)) return;
+      const {error} = await db.rpc('cancel_challan', {p_challan: c.id}); if (error) return toast(error.message, 'err');
+      toast('Challan cancelled; stock returned to the warehouse.'); await showTab('challan');
+    });
+  };
+  $('#chSt').onchange = draw; draw();
+}
+function challanDialog(c, lines, canRecv) {
+  const open = c.status === 'dispatched' && canRecv(c);
+  lines = lines.slice().sort((a, b) => prodName(a.product_id).localeCompare(prodName(b.product_id)));
+  const ov = document.createElement('div'); ov.id = 'ov';
+  ov.innerHTML = `<div class="box" style="width:min(860px,96vw)"><h3>${esc(c.challan_no)} — ${esc(locName(c.from_location_id))} → ${esc(locName(c.to_location_id))}</h3>
+    <p class="sub">Challan date ${c.challan_date}${c.note ? ' · ' + esc(c.note) : ''}${c.status === 'received' ? ` · Received ${new Date(c.received_at).toLocaleString('en-GB', {timeZone: TZ})}` : ''}</p>
+    <div class="tablewrap"><table style="min-width:0"><thead><tr><th>Product</th><th class="n">Dispatched</th><th class="n">${open ? 'Qty received' : 'Received'}</th><th class="n">Difference</th></tr></thead><tbody>
+    ${lines.map(l => `<tr><td>${esc(prodName(l.product_id))}</td><td class="n">${fmt(l.dispatch_qty)}</td><td class="n">${open ? `<input type="number" min="0" step="any" data-pid="${l.product_id}" data-d="${l.dispatch_qty}" value="${l.dispatch_qty}" style="min-width:0;width:90px;text-align:right">` : (l.received_qty == null ? '' : fmt(l.received_qty))}</td><td class="n" data-diff="${l.product_id}">${!open && l.received_qty != null ? fmt(Number(l.received_qty) - Number(l.dispatch_qty)) : '0'}</td></tr>`).join('')}
+    </tbody></table></div>
+    ${open ? '<label>Receiving note (optional, e.g. damaged / short)</label><input type="text" id="rcNote">' : (c.received_note ? `<p class="sub">Note: ${esc(c.received_note)}</p>` : '')}
+    <div id="ovM"></div><div class="row" style="margin-top:14px">${open ? '<button class="btn" id="rcOk">Confirm Receive</button>' : ''}<button class="btn alt" id="rcPr">Print</button><button class="btn alt" id="ovC">Close</button></div></div>`;
+  document.body.appendChild(ov);
+  $('#ovC').onclick = () => ov.remove(); $('#rcPr').onclick = () => printChallan(c, lines);
+  if (!open) return;
+  ov.querySelectorAll('input[data-pid]').forEach(i => i.oninput = () => { ov.querySelector(`[data-diff="${i.dataset.pid}"]`).textContent = fmt(Number(i.value) - Number(i.dataset.d)); });
+  $('#rcOk').onclick = async () => {
+    const vals = [...ov.querySelectorAll('input[data-pid]')].map(i => ({product_id: i.dataset.pid, qty: Number(i.value)}));
+    if (vals.some(x => !(x.qty >= 0))) return note($('#ovM'), 'Received quantities must be zero or greater.', 'err');
+    const diff = vals.filter(x => x.qty !== Number(ov.querySelector(`input[data-pid="${x.product_id}"]`).dataset.d)).length;
+    if (!confirm(diff ? `${diff} product(s) differ from the challan. Confirm receipt?` : 'Confirm receipt of the full challan?')) return;
+    $('#rcOk').disabled = true;
+    const {error} = await db.rpc('receive_challan', {p_challan: c.id, p_lines: vals, p_note: $('#rcNote').value.trim() || null});
+    if (error) { note($('#ovM'), esc(error.message), 'err'); $('#rcOk').disabled = false; return; }
+    ov.remove(); toast('Received. Sales point stock updated.'); await showTab('challan');
+  };
+}
+function printChallan(c, lines) {
+  lines = lines.slice().sort((a, b) => prodName(a.product_id).localeCompare(prodName(b.product_id)));
+  const w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups to print.', 'err');
+  w.document.write(`<html><head><title>${esc(c.challan_no)}</title><style>body{font:13px system-ui,Arial;margin:28px}table{border-collapse:collapse;width:100%;margin-top:14px}th,td{border:1px solid #444;padding:6px 8px;text-align:left}th{background:#eee}td.n,th.n{text-align:right}.sig{display:flex;justify-content:space-between;margin-top:70px}.sig div{border-top:1px solid #000;width:30%;text-align:center;padding-top:4px}</style></head><body>
+    <h2 style="margin:0">Ultimate Organic Life Ltd</h2><h3 style="margin:4px 0">Delivery Challan — ${esc(c.challan_no)}</h3>
+    <div>Date: ${c.challan_date} &nbsp;|&nbsp; From: <b>${esc(locName(c.from_location_id))}</b> &nbsp;|&nbsp; To: <b>${esc(locName(c.to_location_id))}</b></div>${c.note ? `<div>Note: ${esc(c.note)}</div>` : ''}
+    <table><thead><tr><th>#</th><th>Product</th><th class="n">Dispatch qty</th><th class="n">Received qty</th></tr></thead><tbody>
+    ${lines.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(prodName(l.product_id))}</td><td class="n">${fmt(l.dispatch_qty)}</td><td class="n">${l.received_qty == null ? '' : fmt(l.received_qty)}</td></tr>`).join('')}
+    <tr><td></td><td><b>Total</b></td><td class="n"><b>${fmt(lines.reduce((a, l) => a + Number(l.dispatch_qty), 0))}</b></td><td></td></tr></tbody></table>
+    <div class="sig"><div>Prepared by</div><div>Delivered by</div><div>Received by</div></div></body></html>`);
+  w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
 }
 
 // ================================ MASTER DATA ================================
