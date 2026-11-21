@@ -1308,12 +1308,14 @@ async function mdSuppliers(b) {
     <div class="tablewrap"><table><thead><tr><th>Supplier</th><th class="n">Lead time (days)</th><th class="n">Review days</th><th>Contact</th><th>Phone</th><th>Email</th><th>Active</th><th></th></tr></thead><tbody>
     ${sups.map(s => `<tr><td>${esc(s.name)}</td><td class="n">${s.lead_time_days}</td><td class="n">${s.review_days}</td><td>${esc(s.contact_person || '')}</td><td>${esc(s.phone || '')}</td><td>${esc(s.email || '')}</td><td>${s.is_active ? 'Yes' : 'No'}</td>
       <td style="white-space:nowrap"><button class="mini" data-e="${s.id}">Edit</button><button class="mini d" data-d="${s.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="8" class="muted">No suppliers yet. Use "Add from product master" to create them from the Supplier column of your products.</td></tr>'}</tbody></table></div></div>`;
-  const form = (title, s0) => openForm(title, [{k: 'name', label: 'Supplier name', value: s0?.name}, {k: 'lt', label: 'Lead time (days)', type: 'number', value: s0?.lead_time_days ?? 14}, {k: 'rv', label: 'Review days (how often you order)', type: 'number', value: s0?.review_days ?? 7},
-    {k: 'cp', label: 'Contact person', value: s0?.contact_person}, {k: 'ph', label: 'Phone', value: s0?.phone}, {k: 'em', label: 'Email', value: s0?.email},
+  const form = (title, s0) => openForm(title, [{k: 'name', label: 'Supplier name', value: s0?.name},
+    ...(s0 ? [{k: 'lt', label: 'Lead time (days)', type: 'number', value: s0.lead_time_days}, {k: 'rv', label: 'Review days (how often you order)', type: 'number', value: s0.review_days}] : []),
+    {k: 'cp', label: 'Contact person', value: s0?.contact_person}, {k: 'ph', label: 'Phone', value: s0?.phone}, {k: 'em', label: 'Email (optional)', value: s0?.email},
     {k: 'act', label: 'Active', value: s0 ? (s0.is_active ? 'yes' : 'no') : 'yes', options: [['yes', 'Yes'], ['no', 'No']]}], async v => {
     if (!v.name) throw new Error('Supplier name is required.');
-    const row = {name: v.name, lead_time_days: Number(v.lt), review_days: Number(v.rv), contact_person: v.cp || null, phone: v.ph || null, email: v.em || null, is_active: v.act === 'yes'};
-    if (!Number.isInteger(row.lead_time_days) || row.lead_time_days < 0 || !Number.isInteger(row.review_days) || row.review_days < 1) throw new Error('Lead time must be 0 or more days and review days at least 1 (whole numbers).');
+    const row = {name: v.name, contact_person: v.cp || null, phone: v.ph || null, email: v.em || null, is_active: v.act === 'yes'};
+    if (s0) { row.lead_time_days = Number(v.lt); row.review_days = Number(v.rv);
+      if (!Number.isInteger(row.lead_time_days) || row.lead_time_days < 0 || !Number.isInteger(row.review_days) || row.review_days < 1) throw new Error('Lead time must be 0 or more days and review days at least 1 (whole numbers).'); }
     const r = s0 ? await db.from('suppliers').update(row).eq('id', s0.id).select('id') : await db.from('suppliers').insert(row).select('id');
     if (r.error) throw new Error(r.error.code === '23505' ? 'A supplier with this name already exists.' : r.error.message); if (!r.data.length) throw new Error('Not allowed for your role.');
     toast('Saved.'); await showTab('master');
