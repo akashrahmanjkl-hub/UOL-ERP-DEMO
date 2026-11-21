@@ -333,6 +333,7 @@ async function applySession() {
     const p = await db.from('products').select('*').order('name');
     if (p.error) throw p.error; products = p.data;
   } catch (e) { toast(e.message, 'err'); return; }
+  await loadFcSettings();
   buildTabs();
   const visible = TABS.filter(t => tabOk(t));
   if (!visible.some(t => t.id === currentTab)) currentTab = 'dashboard';
@@ -369,15 +370,74 @@ function buildTabs() {
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
-  currentTab = id;
+  currentTab = id; clearInterval(liveTimer);
   $('#tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === id));
   const v = $('#view'); v.innerHTML = loading;
   try { await TABS.find(t => t.id === id).render(v); }
-  catch (e) { v.innerHTML = `<div class="card"><div class="note err">${esc(e.message || e)}</div></div>`; }
+  catch (e) { v.innerHTML = `<div class="card"><div class="note err">${esc(e.message || e)}</div></div>`; return; }
+  if (FC_TABS.includes(id) && isCentral()) {
+    v.insertAdjacentHTML('afterbegin', '<div id="fcH"></div>');
+    fcHealth($('#fcH')).catch(() => { const h = $('#fcH'); if (h) h.remove(); });
+    liveWatch(id);
+  }
 }
 
 // ---------- data helpers ----------
 const WINDOW_DAYS = 30;
+// ---------- ONE live demand engine shared by Distribution, Reorder and Import planning ----------
+// forecast_live (see uol_live_forecast_engine.sql) gives, per sales point x product, an average daily sales that
+//   * counts recent days more (half-life FC.hl days), so a weak day lowers and a strong day raises the forecast at once,
+//   * skips days the product had no stock (stock-out) and days the sales point sent no sales data.
+const FC = {hl: 4, days: 60};
+const FC_HL = [[2, 'Very fast'], [4, 'Fast'], [7, 'Balanced'], [14, 'Stable']];
+const fcLoad = td => rpcAll('forecast_live', {p_to: td, p_days: FC.days, p_halflife: FC.hl}, 'loc_id', 'prod_id');
+const fcRow = r => ({sold: Number(r.sold), tracked: r.tracked_days, avail: r.avail_days, so: r.so_days, unrep: r.unrep_days, w: Number(r.wavg), last: r.last_sale});
+const FC_ZERO = {sold: 0, tracked: 0, avail: 0, so: 0, unrep: 0, w: 0, last: null};
+// daily demand of one sales point x product; with "ignore stock-out" the live weighted figure is used
+const fcBase = (b, ignoreStockout) => {
+  if (!ignoreStockout) return b.sold / WINDOW_DAYS;
+  const need = Math.min(7, Math.max(1, b.tracked - b.unrep));   // reported days we would like to see
+  return b.avail > 0 ? b.w * Math.min(1, b.avail / need) : 0;
+};
+async function loadFcSettings() {
+  try { const r = await db.from('app_settings').select('key,value').eq('key', 'fc_halflife'); const h = Number(((r.data || [])[0] || {}).value); if (FC_HL.some(x => x[0] === h)) FC.hl = h; } catch (e) {}
+}
+function persistUi(scope, ids) {   // keeps screen settings across the automatic refresh
+  ids.forEach(id => { const el = document.getElementById(id); if (!el) return; const k = `uol_ui_${scope}_${id}`; let sv = null; try { sv = localStorage.getItem(k); } catch (e) {}
+    if (sv != null) { if (el.type === 'checkbox') el.checked = sv === '1'; else el.value = sv; }
+    const save = () => { try { localStorage.setItem(k, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch (e) {} };
+    el.addEventListener('input', save); el.addEventListener('change', save); });
+}
+// forecast data health: a sales point that stops sending sales data makes its forecast old
+async function fcHealth(el) {
+  const td = today(), yest = addDays(td, -1), sps = locations.filter(l => l.type === 'sales_point');
+  const rows = await rpcAll('sales_coverage', {p_from: addDays(td, -14), p_to: td}, 'loc_id', 'd');
+  const by = new Map(); rows.forEach(r => { if (!by.has(r.loc_id)) by.set(r.loc_id, new Set()); by.get(r.loc_id).add(r.d); });
+  const late = [], gaps = [];
+  sps.forEach(l => { const s0 = by.get(l.id) || new Set(), last = [...s0].sort().pop(); if (!last || last < yest) late.push(`${l.name} (${last ? 'last sales ' + last : 'no sales data'})`);
+    let miss = 0; for (let i = 1; i <= 14; i++) if (!s0.has(addDays(td, -i))) miss++; if (miss && last) gaps.push(`${l.name}: ${miss} day${miss === 1 ? '' : 's'}`); });
+  const hl = (FC_HL.find(x => x[0] === FC.hl) || [0, FC.hl + '-day'])[1];
+  el.className = 'note ' + (late.length ? 'warn' : 'ok'); el.style.margin = '0 0 12px';
+  el.innerHTML = `<b>🟢 Live forecast</b> · responsiveness: ${esc(hl)} · updated ${new Date().toLocaleTimeString('en-GB', {timeZone: TZ})}<br>` + (late.length
+    ? `⚠ <b>${late.length} sales point${late.length === 1 ? '' : 's'} not reported up to ${yest}:</b> ${late.map(esc).join('; ')}. Their forecast still uses their last reported days; upload the missing sales to bring it up to date.`
+    : `All ${sps.length} sales points reported up to ${yest}.`)
+    + (gaps.length ? `<br><span class="muted">Days with no sales data in the last 14 days are skipped (not counted as zero sales): ${gaps.map(esc).join('; ')}.</span>` : '');
+}
+// screens that depend on the forecast refresh themselves when new data arrives
+const FC_TABS = ['dashboard', 'plan', 'reorder', 'import'];
+let liveTimer = null, liveVer = null;
+const dataVersion = async () => { try { const r = await db.rpc('data_version'); return r.error ? null : r.data; } catch (e) { return null; } };
+async function liveWatch(id) {
+  clearInterval(liveTimer); liveVer = await dataVersion(); if (liveVer == null) return;
+  liveTimer = setInterval(async () => {
+    if (currentTab !== id || document.hidden) return;
+    const nv = await dataVersion(); if (nv == null || nv === liveVer) return;
+    const ae = document.activeElement, busy = $('#ov') || (ae && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ae.tagName) && $('#view').contains(ae));
+    if (busy) { if (!$('#fcLive')) $('#view').insertAdjacentHTML('afterbegin', `<div id="fcLive" class="note warn" style="margin:0 0 12px">New data has arrived. <button class="mini" id="fcLiveBtn">Refresh forecast</button></div>`), $('#fcLiveBtn').onclick = () => showTab(id); return; }
+    liveVer = nv; await showTab(id); toast('New data arrived: forecast refreshed.');
+  }, 30000);
+}
+
 async function liveStock(locIds) {
   return fetchAll((a, b) => {
     let q = db.from('v_live_stock').select('location_id,location_type,product_id,live_qty');
@@ -890,12 +950,12 @@ function allocate(W, need, w) {
 async function renderPlan(v) {
   const sps = locations.filter(l => l.type === 'sales_point'), act = products.filter(p => p.is_active);
   const winFrom = addDays(today(), -(WINDOW_DAYS - 1)), prevFrom = addDays(winFrom, -WINDOW_DAYS), prevTo = addDays(winFrom, -1);
-  const [ls, fb, curP, prevP, abcP, rulesQ, evQ] = await Promise.all([liveStock(), rpcAll('forecast_base', {p_from: winFrom, p_to: today()}, 'loc_id', 'prod_id'),
+  const [ls, fb, curP, prevP, abcP, rulesQ, evQ] = await Promise.all([liveStock(), fcLoad(today()),
     rpcAll('sales_agg', {p_from: winFrom, p_to: today(), p_by_location: false}, 'prod_id'), rpcAll('sales_agg', {p_from: prevFrom, p_to: prevTo, p_by_location: false}, 'prod_id'),
     rpcAll('sales_agg', {p_from: addDays(today(), -(ABC_DAYS - 1)), p_to: today(), p_by_location: false}, 'prod_id'),
     db.from('plan_rules').select('*'), db.from('season_events').select('*').eq('is_active', true)]);
   if (rulesQ.error || evQ.error) throw new Error('Run uol_step4_forecasting.sql in the Supabase SQL Editor first.');
-  const fbm = new Map(fb.map(r => [r.loc_id + '|' + r.prod_id, {sold: Number(r.sold), tracked: r.tracked_days, avail: r.avail_days}]));
+  const fbm = new Map(fb.map(r => [r.loc_id + '|' + r.prod_id, fcRow(r)]));
   const mapP = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)])), curM = mapP(curP), prevM = mapP(prevP);
   const abc = abcCompute(mapP(abcP), 80, 95).map, rules = rulesQ.data, events = evQ.data, lyFactor = new Map(); let lyLoaded = false;
   let tqRows; try { tqRows = await fetchAll((a, b) => db.from('v_in_transit').select('location_id,product_id,qty').order('location_id').order('product_id').range(a, b)); }
@@ -925,6 +985,7 @@ async function renderPlan(v) {
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plLy"> Auto seasonality (last year)</label>
     <div><label>ABC class</label><select id="plAbc"><option value="">All</option><option>A</option><option>B</option><option>C</option><option value="X">X (no sales)</option></select></div>
     <button class="btn alt" id="plExp">Export Plan (Excel)</button><button class="btn" id="plMk">Create Challan(s)</button></div></div><div id="plOut"></div>`;
+  persistUi('plan', ['plView', 'plSrc', 'plGap', 'plBuf', 'plCap', 'plHide', 'plAuto', 'plPct', 'plSo', 'plTr', 'plSea', 'plAbc']);
   let cur = null;
   const compute = () => {
     const G = +$('#plGap').value, cap = $('#plCap').checked, so = $('#plSo').checked, trm = +$('#plTr').value, sea = $('#plSea').checked, ly = $('#plLy').checked,
@@ -935,9 +996,9 @@ async function renderPlan(v) {
       let tf = 1; if (trm) { const c = curM.get(p.id) || 0, pv = prevM.get(p.id) || 0; if (pv >= 10) { const lim = trm === 1 ? 0.25 : 0.5; tf = Math.min(1 + lim, Math.max(1 - lim, c / pv)); } }
       let sf = 1; if (sea) sf *= eventFactor(events, p, today(), H); if (ly) sf *= lyFactor.get(p.id) || 1;
       const factor = Math.min(4, Math.max(0.3, tf * sf));
-      const rows = sps.map(sp => { const k = sp.id + '|' + p.id, b = fbm.get(k) || {sold: 0, tracked: 0, avail: 0}, st = stock.get(k) || 0, rq = req.get(k) || 0, tr = transit.get(k) || 0;
-        const base = so ? (b.avail > 0 ? b.sold / Math.max(b.avail, Math.min(7, b.tracked)) : 0) : b.sold / WINDOW_DAYS, avg = base * factor;
-        let need = Math.max(0, Math.ceil(avg * H - st - tr - 1e-9)); if (cap) need = Math.min(need, Math.ceil(rq)); return {sp, avg, so: b.tracked - b.avail, st, tr, rq, need}; });
+      const rows = sps.map(sp => { const k = sp.id + '|' + p.id, b = fbm.get(k) || FC_ZERO, st = stock.get(k) || 0, rq = req.get(k) || 0, tr = transit.get(k) || 0;
+        const base = fcBase(b, so), avg = base * factor;
+        let need = Math.max(0, Math.ceil(avg * H - st - tr - 1e-9)); if (cap) need = Math.min(need, Math.ceil(rq)); return {sp, avg, so: b.so, st, tr, rq, need}; });
       const W = Math.max(0, (src ? whLoc.get(src + '|' + p.id) : wh.get(p.id)) || 0), give = allocate(W, rows.map(r => r.need), rows.map(r => r.avg));
       rows.forEach((r, i) => r.give = give[i]);
       return {p, cls, gap, buf, factor, W, rows, need: rows.reduce((a, r) => a + r.need, 0), give: give.reduce((a, b) => a + b, 0)};
@@ -1572,7 +1633,7 @@ async function renderImport(v) {
   if (products.length && !('is_import' in products[0])) throw new Error('Run uol_step6_import_planning.sql in the Supabase SQL Editor first.');
   const S = impS, whs = locations.filter(l => l.type === 'warehouse'), act = products.filter(p => p.is_active), td = today();
   const winFrom = addDays(td, -(WINDOW_DAYS - 1)), prevFrom = addDays(winFrom, -WINDOW_DAYS), prevTo = addDays(winFrom, -1);
-  const [ls, fb, curP, prevP, abcP, evQ, supQ, trQ, ooQ, lcQ] = await Promise.all([liveStock(), rpcAll('forecast_base', {p_from: winFrom, p_to: td}, 'loc_id', 'prod_id'),
+  const [ls, fb, curP, prevP, abcP, evQ, supQ, trQ, ooQ, lcQ] = await Promise.all([liveStock(), fcLoad(today()),
     rpcAll('sales_agg', {p_from: winFrom, p_to: td, p_by_location: false}, 'prod_id'), rpcAll('sales_agg', {p_from: prevFrom, p_to: prevTo, p_by_location: false}, 'prod_id'),
     rpcAll('sales_agg', {p_from: addDays(td, -(ABC_DAYS - 1)), p_to: td, p_by_location: false}, 'prod_id'),
     db.from('season_events').select('*').eq('is_active', true), db.from('suppliers').select('*'),
@@ -1583,7 +1644,7 @@ async function renderImport(v) {
   const sumP = rows => { const m = new Map(); rows.forEach(r => m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.qty))); return m; };
   const transit = sumP(trQ.data), onOrder = sumP(ooQ.data), lastCost = new Map(lcQ.data.map(r => [r.product_id, Number(r.unit_cost)]));
   const whStock = new Map(), spStock = new Map(); ls.forEach(r => { const m = r.location_type === 'warehouse' ? whStock : spStock; m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.live_qty)); });
-  const fbByP = new Map(); fb.forEach(r => { if (!fbByP.has(r.prod_id)) fbByP.set(r.prod_id, []); fbByP.get(r.prod_id).push({sold: Number(r.sold), tracked: r.tracked_days, avail: r.avail_days}); });
+  const fbByP = new Map(); fb.forEach(r => { if (!fbByP.has(r.prod_id)) fbByP.set(r.prod_id, []); fbByP.get(r.prod_id).push(fcRow(r)); });
   const imports = act.filter(p => p.is_import !== false), supNames = [...new Set(imports.map(p => p.supplier).filter(Boolean))].sort();
   const reloadProducts = async () => { const r = await db.from('products').select('*').order('name'); if (r.error) throw r.error; products = r.data; };
 
@@ -1601,7 +1662,7 @@ async function renderImport(v) {
   const calc = () => { const P = S.p; return imports.map(p => {
     const cls = (abc.get(p.id) || {}).cls || 'X', sup = supOf(p);
     let tf = 1; const trm = +P.tr; if (trm) { const c = curM.get(p.id) || 0, pv = prevM.get(p.id) || 0; if (pv >= 10) { const lim = trm === 1 ? 0.25 : 0.5; tf = Math.min(1 + lim, Math.max(1 - lim, c / pv)); } }
-    const base = (fbByP.get(p.id) || []).reduce((a, b) => a + (P.so ? (b.avail > 0 ? b.sold / Math.max(b.avail, Math.min(7, b.tracked)) : 0) : b.sold / WINDOW_DAYS), 0);
+    const base = (fbByP.get(p.id) || []).reduce((a, b) => a + fcBase(b, P.so), 0);
     const r = impPlanRow(p, {today: td, P, cls, sup, base, trend: tf, events, wh: Math.max(0, whStock.get(p.id) || 0), sp: Math.max(0, spStock.get(p.id) || 0), tr: transit.get(p.id) || 0, oo: onOrder.get(p.id) || 0});
     r.cost = lastCost.get(p.id); return r; }); };
   const ST = {'Stock-out risk': 'b-do_not_give', 'Order now': 'b-partial', 'Plan this month': 'b-dispatched', 'Upcoming': 'b-ordered', 'Covered': 'b-received', 'No demand': 'b-cancelled'};
@@ -1807,6 +1868,21 @@ async function renderAbc(v) {
 
 // ============================ PLANNING RULES (buffer rules + seasonal events) ============================
 async function renderPlanRules(v) {
+  await renderPlanRules0(v);
+  const sumW = hl => 1 / (1 - Math.pow(0.5, 1 / hl));
+  const eg = hl => { const w = sumW(hl); return `a product that normally sells 10 a day and then sells 30 in one day: the forecast rises to about <b>${fmt(10 + 20 / w)}</b> a day at once, then falls back over the following days; if it sells only 2 in a day it drops to about <b>${fmt(10 - 8 / w)}</b>`; };
+  v.insertAdjacentHTML('afterbegin', `<div class="card"><h2>Live forecast settings</h2>
+    <p class="sub">One setting for the whole system: Distribution &amp; Forecasting, Reorder Planning and Import Planning all use the same live demand. Days on which a product had no stock, and days on which a sales point sent no sales data, are not counted as zero sales.</p>
+    <div class="row"><div><label>How fast the forecast follows sales</label><select id="fcHl">${FC_HL.map(([h, n]) => `<option value="${h}" ${h === FC.hl ? 'selected' : ''}>${n} (recent days count double every ${h} days)</option>`).join('')}</select></div>
+    <button class="btn" id="fcSave">Save</button></div><p class="sub" id="fcEg" style="margin:8px 0 0"></p><div id="fcM"></div></div>`);
+  const show = () => { $('#fcEg').innerHTML = 'Example: ' + eg(+$('#fcHl').value) + '.'; }; $('#fcHl').onchange = show; show();
+  $('#fcSave').onclick = async () => {
+    const h = +$('#fcHl').value, r = await db.from('app_settings').upsert({key: 'fc_halflife', value: String(h)}, {onConflict: 'key'});
+    if (r.error) return note($('#fcM'), esc('Only a Super Admin or Admin can change this setting. ' + r.error.message), 'err');
+    FC.hl = h; audit('update', 'app_settings', `Live forecast responsiveness set to ${h}-day half-life`, {fc_halflife: h}); toast('Saved. All planners now use the new setting.');
+  };
+}
+async function renderPlanRules0(v) {
   const [rq, eq] = await Promise.all([db.from('plan_rules').select('*').order('scope').order('rule_key'), db.from('season_events').select('*').order('start_date', {ascending: false})]);
   const miss = ['42P01', 'PGRST205'].includes((rq.error || eq.error || {}).code); if (miss) throw new Error('Run uol_step4_forecasting.sql in the Supabase SQL Editor first.'); if (rq.error || eq.error) throw (rq.error || eq.error);
   const rules = rq.data, events = eq.data;
@@ -1928,7 +2004,7 @@ async function mdSuppliers(b) {
 async function renderReorder(v) {
   const whs = locations.filter(l => l.type === 'warehouse'), act = products.filter(p => p.is_active);
   const winFrom = addDays(today(), -(WINDOW_DAYS - 1)), prevFrom = addDays(winFrom, -WINDOW_DAYS), prevTo = addDays(winFrom, -1);
-  const [ls, fb, curP, prevP, abcP, evQ, supQ, trQ, ooQ, drQ, lcQ] = await Promise.all([liveStock(), rpcAll('forecast_base', {p_from: winFrom, p_to: today()}, 'loc_id', 'prod_id'),
+  const [ls, fb, curP, prevP, abcP, evQ, supQ, trQ, ooQ, drQ, lcQ] = await Promise.all([liveStock(), fcLoad(today()),
     rpcAll('sales_agg', {p_from: winFrom, p_to: today(), p_by_location: false}, 'prod_id'), rpcAll('sales_agg', {p_from: prevFrom, p_to: prevTo, p_by_location: false}, 'prod_id'),
     rpcAll('sales_agg', {p_from: addDays(today(), -(ABC_DAYS - 1)), p_to: today(), p_by_location: false}, 'prod_id'),
     db.from('season_events').select('*').eq('is_active', true), db.from('suppliers').select('*'),
@@ -1939,7 +2015,7 @@ async function renderReorder(v) {
   const sumP = rows => { const m = new Map(); rows.forEach(r => m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.qty))); return m; };
   const transit = sumP(trQ.data), onOrder = sumP(ooQ.data), draft = sumP(drQ.data), lastCost = new Map(lcQ.data.map(r => [r.product_id, Number(r.unit_cost)]));
   const whStock = new Map(), spStock = new Map(); ls.forEach(r => { const m = r.location_type === 'warehouse' ? whStock : spStock; m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.live_qty)); });
-  const fbByP = new Map(); fb.forEach(r => { if (!fbByP.has(r.prod_id)) fbByP.set(r.prod_id, []); fbByP.get(r.prod_id).push({sold: Number(r.sold), tracked: r.tracked_days, avail: r.avail_days}); });
+  const fbByP = new Map(); fb.forEach(r => { if (!fbByP.has(r.prod_id)) fbByP.set(r.prod_id, []); fbByP.get(r.prod_id).push(fcRow(r)); });
   const supNames = [...new Set(act.map(p => p.supplier).filter(Boolean))].sort();
   v.innerHTML = `<div class="card"><h2>Reorder Planning</h2>
     <p class="sub">Shows what to buy, from which supplier and by when. <b>Target stock</b> = demand per day × (supplier lead time + review days + safety days). <b>Position</b> = warehouse stock + sales point stock + in-transit + already on order. Suggested quantity = target − position, raised to the product's MOQ and rounded up to its pack size. Demand uses the same forecast as Distribution &amp; Forecasting (stock-out days ignored, optional trend and seasonal events). Lead time comes from the product, else the supplier (default 14 days).</p>
@@ -1952,6 +2028,7 @@ async function renderReorder(v) {
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="roOnly" checked> Only products to order</label>
     <div><label>Receiving warehouse</label><select id="roWh">${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
     <button class="btn" id="roMk">Create PO(s) for selected</button><button class="btn alt" id="roX">Export Excel</button></div></div><div id="roK"></div><div id="roT"></div>`;
+  persistUi('reorder', ['roA', 'roB', 'roC', 'roTr', 'roSo', 'roSea', 'roSup', 'roAbc', 'roOnly', 'roWh']);
   let rows = [], qtyEdit = new Map(), chk = new Set();
   const calc = () => {
     const sd = {A: +$('#roA').value || 0, B: +$('#roB').value || 0, C: +$('#roC').value || 0, X: 0}, so = $('#roSo').checked, trm = +$('#roTr').value, sea = $('#roSea').checked;
@@ -1959,7 +2036,7 @@ async function renderReorder(v) {
       const cls = (abc.get(p.id) || {}).cls || 'X', sup = supOf(p), lead = p.lead_time_days ?? sup?.lead_time_days ?? 14, review = sup?.review_days ?? 7, safety = sd[cls] ?? 0, H = lead + review + safety;
       let tf = 1; if (trm) { const c = curM.get(p.id) || 0, pv = prevM.get(p.id) || 0; if (pv >= 10) { const lim = trm === 1 ? 0.25 : 0.5; tf = Math.min(1 + lim, Math.max(1 - lim, c / pv)); } }
       const factor = Math.min(4, Math.max(0.3, tf * (sea ? eventFactor(events, p, today(), H) : 1)));
-      const D = (fbByP.get(p.id) || []).reduce((a, b) => a + (so ? (b.avail > 0 ? b.sold / Math.max(b.avail, Math.min(7, b.tracked)) : 0) : b.sold / WINDOW_DAYS), 0) * factor;
+      const D = (fbByP.get(p.id) || []).reduce((a, b) => a + fcBase(b, so), 0) * factor;
       const wh = Math.max(0, whStock.get(p.id) || 0), sp = Math.max(0, spStock.get(p.id) || 0), tr = transit.get(p.id) || 0, oo = onOrder.get(p.id) || 0, pos = wh + sp + tr + oo;
       const cover = D > 0 ? pos / D : Infinity; let qty = D > 0 ? Math.max(0, Math.ceil(D * H - pos - 1e-9)) : 0;
       if (qty > 0) { if (Number(p.moq) > 0) qty = Math.max(qty, Number(p.moq)); if (Number(p.pack_size) > 0) qty = Math.ceil(qty / Number(p.pack_size)) * Number(p.pack_size); }
