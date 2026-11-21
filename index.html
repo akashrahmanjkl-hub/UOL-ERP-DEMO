@@ -289,6 +289,7 @@ const tabOk = t => t.admin ? ['super_admin', 'admin'].includes(session.role) : t
 const TABS = [
   {id: 'dashboard', label: 'Dashboard', render: renderDashboard},
   {id: 'stock', label: 'Live Stock', render: renderStock},
+  {id: 'invmove', label: 'Inventory Movement', render: renderInvMove},
   {id: 'opening', label: 'Opening Stock', central: true, render: renderOpening},
   {id: 'sales', label: 'Daily Sales', render: renderSales},
   {id: 'indent', label: 'Indent Management', central: true, render: renderIndent},
@@ -309,7 +310,7 @@ const TABS = [
 ];
 function buildTabs() {
   $('#tabs').innerHTML = TABS.filter(t => tabOk(t))
-    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
+    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
@@ -1180,6 +1181,263 @@ function docDialog(d, lines, canRecv) {
     if (error) { note($('#ovM'), esc(error.message), 'err'); $('#rcOk').disabled = false; return; }
     ov.remove(); toast('Received. Stock updated.'); await showTab('stockdocs');
   };
+}
+
+// ========================== INVENTORY MOVEMENT ==========================
+// One place to see opening stock, sales, challans, transfers, returns and adjustments for every location.
+const INV_TYPES = {opening: 'Opening Stock', sale: 'Sale', challan: 'Delivery Challan', transfer: 'Transfer', return: 'Return', adjustment: 'Adjustment', damage: 'QC Fail', count: 'Physical Count'};
+const INV_TYPE_BADGE = {opening: 'b-give', sale: 'b-partial', challan: 'b-in_transit', transfer: 'b-in_transit', return: 'b-in_transit', adjustment: 'b-draft', damage: 'b-do_not_give', count: 'b-draft'};
+const INV_STATUS = {posted: 'Posted', in_transit: 'In transit', received: 'Received', cancelled: 'Cancelled'};
+const INV_STATUS_BADGE = {posted: 'b-posted', in_transit: 'b-in_transit', received: 'b-received', cancelled: 'b-closed'};
+const INV_COLS = [['date', 'Date'], ['type', 'Type'], ['doc', 'Document No'], ['src', 'Source'], ['dst', 'Destination'], ['product', 'Product'], ['qty', 'Quantity'], ['rcv', 'Received Qty'], ['status', 'Status'], ['reason', 'Reason / Note']];
+const INV_PRESET_KEY = 'uol_inv_presets_v1';
+const invS = {};          // filter state is kept while the user moves between tabs
+let invCache = {key: '', rows: [], warn: []};
+
+const invChunk = (a, n) => { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
+const invPresets = () => { try { return JSON.parse(localStorage.getItem(INV_PRESET_KEY) || '{}'); } catch (e) { return {}; } };
+const invSavePresets = p => { try { localStorage.setItem(INV_PRESET_KEY, JSON.stringify(p)); } catch (e) { /* storage unavailable */ } };
+
+function invRange(key) {
+  const t = today(), [y, m] = t.split('-').map(Number), iso = d => d.toISOString().slice(0, 10);
+  switch (key) {
+    case 'today': return [t, t];
+    case 'yesterday': return [addDays(t, -1), addDays(t, -1)];
+    case '7': return [addDays(t, -6), t];
+    case '30': return [addDays(t, -29), t];
+    case 'month': return [`${y}-${String(m).padStart(2, '0')}-01`, t];
+    case 'lastmonth': return [iso(new Date(Date.UTC(y, m - 2, 1))), iso(new Date(Date.UTC(y, m - 1, 0)))];
+    case 'year': return [`${y}-01-01`, t];
+  }
+  return null;
+}
+
+async function invFetch(from, to) {
+  const warn = [], rows = [];
+  const safe = async (label, fn) => { try { return await fn(); } catch (e) { warn.push(`${label}: ${e.message || e}`); return []; } };
+  const lines = async (table, idCol, cols, ids) => (await Promise.all(invChunk(ids, 100).map(part =>
+    fetchAll((a, b) => db.from(table).select(cols).in(idCol, part).order('id').range(a, b))))).flat();
+
+  const [opening, sales, challans, docs] = await Promise.all([
+    safe('Opening stock', () => fetchAll((a, b) => db.from('stock_ledger').select('location_id,product_id,entry_date,qty').eq('entry_type', 'opening').gte('entry_date', from).lte('entry_date', to).order('id').range(a, b))),
+    safe('Sales', () => fetchAll((a, b) => db.from('daily_sales').select('location_id,product_id,sale_date,qty').gte('sale_date', from).lte('sale_date', to).order('id').range(a, b))),
+    safe('Delivery challans', () => fetchAll((a, b) => db.from('challans').select('*').gte('challan_date', from).lte('challan_date', to).order('id').range(a, b))),
+    safe('Stock documents', () => fetchAll((a, b) => db.from('stock_docs').select('*').gte('doc_date', from).lte('doc_date', to).order('id').range(a, b)))
+  ]);
+  const [cLines, dLines] = await Promise.all([
+    challans.length ? safe('Challan lines', () => lines('challan_lines', 'challan_id', 'challan_id,product_id,dispatch_qty,received_qty', challans.map(c => c.id))) : [],
+    docs.length ? safe('Stock document lines', () => lines('stock_doc_lines', 'doc_id', 'doc_id,product_id,qty,received_qty', docs.map(d => d.id))) : []
+  ]);
+
+  opening.forEach(r => rows.push({date: r.entry_date, type: 'opening', docNo: '', src: null, dst: r.location_id, pid: r.product_id, qty: Number(r.qty), rcv: null, status: 'posted', reason: 'Opening balance'}));
+  sales.forEach(r => rows.push({date: r.sale_date, type: 'sale', docNo: '', src: r.location_id, dst: null, pid: r.product_id, qty: Number(r.qty), rcv: null, status: 'posted', reason: ''}));
+  const cMap = new Map(challans.map(c => [c.id, c]));
+  cLines.forEach(l => { const c = cMap.get(l.challan_id); if (!c) return;
+    rows.push({date: c.challan_date, type: 'challan', docNo: c.challan_no, src: c.from_location_id, dst: c.to_location_id, pid: l.product_id, qty: Number(l.dispatch_qty),
+      rcv: c.status === 'received' ? Number(l.received_qty) : null, status: c.status === 'dispatched' ? 'in_transit' : c.status, reason: c.note || ''}); });
+  const dMap = new Map(docs.map(d => [d.id, d]));
+  dLines.forEach(l => { const d = dMap.get(l.doc_id); if (!d) return;
+    const q = Number(l.qty), base = {date: d.doc_date, type: d.doc_type, docNo: d.doc_no, pid: l.product_id, status: d.status, reason: [d.reason, d.note].filter(Boolean).join(' — '), rcv: null};
+    if (d.doc_type === 'transfer' || d.doc_type === 'return') rows.push({...base, src: d.location_id, dst: d.to_location_id, qty: q, rcv: l.received_qty == null ? null : Number(l.received_qty)});
+    else if (d.doc_type === 'damage') rows.push({...base, src: d.location_id, dst: null, qty: Math.abs(q)});
+    else rows.push(q >= 0 ? {...base, src: null, dst: d.location_id, qty: q} : {...base, src: d.location_id, dst: null, qty: Math.abs(q)});   // adjustment / count
+  });
+  return {rows, warn};
+}
+
+// How one row changes the stock of each location (cancelled documents change nothing; stock in transit is not yet at the destination).
+function invEffects(r) {
+  if (r.status === 'cancelled') return [];
+  const q = r.qty;
+  switch (r.type) {
+    case 'opening': return [[r.dst, 'opening', q]];
+    case 'sale': return [[r.src, 'sales', q]];
+    case 'challan': case 'transfer': case 'return':
+      return [[r.src, 'out', q]].concat(r.status === 'received' ? [[r.dst, 'in', r.rcv ?? q]] : []);
+    default: return [r.dst ? [r.dst, 'adj', q] : [r.src, 'adj', -q]];
+  }
+}
+
+async function renderInvMove(v) {
+  const locs = locations.slice(), whs = locs.filter(l => l.type === 'warehouse'), sps = locs.filter(l => l.type === 'sales_point');
+  const pName = new Map(products.map(p => [p.id, p.name]));
+  const lType = new Map(allLocations.map(l => [l.id, l.type]));
+  const S = invS;
+  if (!S.from) Object.assign(S, {range: '30', from: addDays(today(), -29), to: today(), types: Object.keys(INV_TYPES), cols: INV_COLS.map(c => c[0]),
+    view: 'detail', sort: {k: 'date', d: -1}, limit: 200, status: 'active', src: '', dst: '', any: '', q: '', pq: '', minq: ''});
+
+  const grp = `<optgroup label="Groups"><option value="T:warehouse">All warehouses</option><option value="T:sales_point">All sales points</option></optgroup>`;
+  const lo = (extra) => `<option value="">All</option>${extra}${grp}<optgroup label="Warehouses">${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</optgroup><optgroup label="Sales Points">${sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</optgroup>`;
+  const quick = [['today', 'Today'], ['yesterday', 'Yesterday'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['year', 'This year']];
+
+  v.innerHTML = `<div class="card"><h2>Inventory Movement</h2>
+    <p class="sub">Opening stock, sales, delivery challans, transfers, returns, adjustments and QC fails of every location in one view. Filter by date, source and destination, then customise the filters and columns as needed.</p>
+    <div class="row"><div><label>From date</label><input type="date" id="ivFrom"></div><div><label>To date</label><input type="date" id="ivTo"></div>
+      <div><label>Quick range</label><select id="ivRange">${quick.map(q => `<option value="${q[0]}">${q[1]}</option>`).join('')}<option value="custom">Custom dates</option></select></div>
+      <button class="btn alt" id="ivRefresh">Refresh data</button></div>
+    <div class="row" style="margin-top:12px">
+      <div><label>Source location</label><select id="ivSrc">${lo('<option value="__none">None (opening / stock found)</option>')}</select></div>
+      <div><label>Destination location</label><select id="ivDst">${lo('<option value="__none">None (sale / write-off)</option>')}</select></div>
+      <div><label>Any location (source or destination)</label><select id="ivAny">${lo('')}</select></div>
+      <div><label>Status</label><select id="ivStatus"><option value="active">All except cancelled</option><option value="all">All including cancelled</option>${Object.entries(INV_STATUS).map(([k, n]) => `<option value="${k}">${n} only</option>`).join('')}</select></div>
+      <div><label>Search document / reason</label><input type="text" id="ivQ" placeholder="Document no, reason or note"></div></div>
+    <details id="ivAdv" style="margin-top:12px"><summary style="cursor:pointer;font-weight:700;color:var(--green)">Customise filters &amp; columns</summary>
+      <div class="row" style="margin-top:10px"><div><label>Product name contains</label><input type="text" id="ivPq" placeholder="Type to filter"></div>
+        <div><label>Minimum quantity</label><input type="number" id="ivMin" min="0" step="any" style="width:130px"></div></div>
+      <label style="margin-top:12px">Movement types</label><div id="ivTypes" style="display:flex;flex-wrap:wrap;gap:6px 16px">${Object.entries(INV_TYPES).map(([k, n]) => `<label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--ink)"><input type="checkbox" data-t="${k}"> ${n}</label>`).join('')}</div>
+      <label style="margin-top:12px">Columns to show (detail view)</label><div id="ivCols" style="display:flex;flex-wrap:wrap;gap:6px 16px">${INV_COLS.map(c => `<label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--ink)"><input type="checkbox" data-c="${c[0]}"> ${c[1]}</label>`).join('')}</div>
+      <div class="row" style="margin-top:12px"><div><label>Saved filters</label><select id="ivPre" style="min-width:200px"></select></div>
+        <button class="btn alt" id="ivPreLoad">Apply</button><button class="btn alt" id="ivPreSave">Save current filter</button><button class="btn alt" id="ivPreDel">Delete</button>
+        <button class="btn alt" id="ivReset">Reset all</button></div></details></div>
+    <div id="ivMsg"></div><div id="ivOut">${loading}</div>`;
+
+  // ---- sync UI <-> state ----
+  const pushUI = () => {
+    $('#ivFrom').value = S.from; $('#ivTo').value = S.to; $('#ivRange').value = S.range; $('#ivSrc').value = S.src; $('#ivDst').value = S.dst; $('#ivAny').value = S.any;
+    $('#ivStatus').value = S.status; $('#ivQ').value = S.q; $('#ivPq').value = S.pq; $('#ivMin').value = S.minq;
+    $('#ivTypes').querySelectorAll('input').forEach(i => i.checked = S.types.includes(i.dataset.t));
+    $('#ivCols').querySelectorAll('input').forEach(i => i.checked = S.cols.includes(i.dataset.c));
+  };
+  const pullUI = () => {
+    Object.assign(S, {src: $('#ivSrc').value, dst: $('#ivDst').value, any: $('#ivAny').value, status: $('#ivStatus').value, q: $('#ivQ').value, pq: $('#ivPq').value, minq: $('#ivMin').value});
+    S.types = [...$('#ivTypes').querySelectorAll('input')].filter(i => i.checked).map(i => i.dataset.t);
+    S.cols = INV_COLS.map(c => c[0]).filter(k => [...$('#ivCols').querySelectorAll('input')].some(i => i.dataset.c === k && i.checked));
+    S.limit = 200;
+  };
+  const fillPresets = () => { const p = invPresets(); $('#ivPre').innerHTML = Object.keys(p).length ? Object.keys(p).map(n => `<option>${esc(n)}</option>`).join('') : '<option value="">No saved filters</option>'; };
+
+  // ---- filtering ----
+  const matchLoc = (id, val) => !val || (val === '__none' ? !id : val.startsWith('T:') ? !!id && lType.get(id) === val.slice(2) : id === val);
+  const filtered = () => {
+    const q = norm(S.q), pq = norm(S.pq), min = S.minq === '' ? null : Number(S.minq);
+    return invCache.rows.filter(r =>
+      S.types.includes(r.type) &&
+      (S.status === 'all' || (S.status === 'active' ? r.status !== 'cancelled' : r.status === S.status)) &&
+      matchLoc(r.src, S.src) && matchLoc(r.dst, S.dst) &&
+      (!S.any || matchLoc(r.src, S.any) || matchLoc(r.dst, S.any)) &&
+      (!pq || norm(pName.get(r.pid)).includes(pq)) &&
+      (!q || norm(`${r.docNo} ${r.reason}`).includes(q)) &&
+      (min == null || r.qty >= min));
+  };
+
+  // ---- table models (shared by the screen and Excel export) ----
+  const srcLbl = r => r.src ? locName(r.src) : r.type === 'opening' ? 'Opening balance' : '—';
+  const dstLbl = r => r.dst ? locName(r.dst) : r.type === 'sale' ? 'Customer (sale)' : '—';
+  const CELL = {
+    date: r => ({t: r.date}), doc: r => ({t: r.docNo || '—'}), src: r => ({t: srcLbl(r)}), dst: r => ({t: dstLbl(r)}), product: r => ({t: pName.get(r.pid) || '—'}),
+    type: r => ({t: INV_TYPES[r.type], h: `<span class="badge ${INV_TYPE_BADGE[r.type]}">${INV_TYPES[r.type]}</span>`}),
+    qty: r => ({t: r.qty, n: 1}), rcv: r => ({t: r.rcv == null ? '' : r.rcv, n: 1}),
+    status: r => ({t: INV_STATUS[r.status] || r.status, h: `<span class="badge ${INV_STATUS_BADGE[r.status] || 'b-draft'}">${INV_STATUS[r.status] || esc(r.status)}</span>`}),
+    reason: r => ({t: r.reason || ''})
+  };
+  const sortVal = (r, k) => k === 'qty' ? r.qty : k === 'rcv' ? (r.rcv ?? -1) : CELL[k](r).t;
+
+  const bucketRows = (rows, keyFn) => {
+    const m = new Map();
+    rows.forEach(r => invEffects(r).forEach(([loc, b, q]) => { const k = keyFn(loc, r); if (!k) return;
+      const o = m.get(k) || {opening: 0, in: 0, sales: 0, out: 0, adj: 0}; o[b] += q; m.set(k, o); }));
+    return m;
+  };
+  const net = o => o.opening + o.in - o.sales - o.out + o.adj;
+  const aggHead = first => [first, 'Opening Stock', 'Received (in)', 'Sales', 'Sent out', 'Adjust / QC (net)', 'Net Change'];
+  const aggRow = (name, o) => [name, o.opening, o.in, o.sales, o.out, o.adj, net(o)];
+
+  const model = async (rows) => {
+    if (S.view === 'loc') {
+      const m = bucketRows(rows, loc => loc), live = new Map();
+      (await liveStock()).forEach(r => live.set(r.location_id, (live.get(r.location_id) || 0) + Number(r.live_qty)));
+      const ids = [...m.keys()].sort((a, b) => locName(a).localeCompare(locName(b)));
+      return {head: aggHead('Location').concat('Live Stock (now)'), body: ids.map(id => aggRow(locName(id), m.get(id)).concat(live.get(id) || 0)), num: true,
+        note: 'Live stock is the current balance as of now, whatever date range is selected. Stock still in transit is not counted at the destination until it is received.'};
+    }
+    if (S.view === 'prod') {
+      const m = bucketRows(rows, (loc, r) => r.pid);
+      const ids = [...m.keys()].sort((a, b) => (pName.get(a) || '').localeCompare(pName.get(b) || ''));
+      return {head: aggHead('Product'), body: ids.map(id => aggRow(pName.get(id) || '—', m.get(id))), num: true,
+        note: 'Product totals combine all locations in the filtered records, so a received transfer appears once as Sent out and once as Received.'};
+    }
+    const sorted = rows.slice().sort((a, b) => { const x = sortVal(a, S.sort.k), y = sortVal(b, S.sort.k); return (x < y ? -1 : x > y ? 1 : 0) * S.sort.d || (a.date < b.date ? 1 : -1); });
+    return {head: S.cols.map(k => INV_COLS.find(c => c[0] === k)[1]), keys: S.cols, rows: sorted};
+  };
+
+  let lastModel = null, lastRows = [];
+  const draw = async () => {
+    const out = $('#ivOut'); lastRows = filtered();
+    const all = bucketRows(lastRows, () => 'all').get('all') || {opening: 0, in: 0, sales: 0, out: 0, adj: 0};
+    const tiles = `<div class="grid" style="margin-bottom:16px">
+      <div class="tile"><small>Records</small><b>${fmt(lastRows.length)}</b></div><div class="tile"><small>Opening stock</small><b>${fmt(all.opening)}</b></div>
+      <div class="tile"><small>Sales</small><b>${fmt(all.sales)}</b></div><div class="tile"><small>Sent out (challan / transfer / return)</small><b>${fmt(all.out)}</b></div>
+      <div class="tile"><small>Received at destination</small><b>${fmt(all.in)}</b></div><div class="tile"><small>Adjust / QC (net)</small><b>${fmt(all.adj)}</b></div></div>`;
+    const views = [['detail', 'All movements'], ['loc', 'By location'], ['prod', 'By product']];
+    const bar = `<div class="row" style="margin-bottom:12px">${views.map(([k, n]) => `<button class="btn ${S.view === k ? '' : 'alt'}" data-v="${k}">${n}</button>`).join('')}<button class="btn alt" id="ivXl" style="margin-left:auto">Export to Excel</button></div>`;
+    let body;
+    try {
+      lastModel = await model(lastRows);
+      const m = lastModel;
+      if (m.rows) {
+        const shown = m.rows.slice(0, S.limit), totQ = m.rows.reduce((a, r) => a + r.qty, 0);
+        const th = m.keys.map((k, i) => `<th class="${['qty', 'rcv'].includes(k) ? 'n' : ''}" data-s="${k}" style="cursor:pointer;white-space:nowrap">${m.head[i]}${S.sort.k === k ? (S.sort.d > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('');
+        const tr = shown.map(r => `<tr>${m.keys.map(k => { const c = CELL[k](r); return `<td class="${c.n ? 'n' : ''}">${c.h ?? (c.n ? fmt(c.t) : esc(c.t))}</td>`; }).join('')}</tr>`).join('');
+        const qi = m.keys.indexOf('qty');
+        body = m.keys.length ? `<div class="card"><div class="tablewrap"><table><thead><tr>${th}</tr></thead><tbody>${tr || `<tr><td colspan="${m.keys.length}" class="muted">No records match these filters.</td></tr>`}
+          ${qi >= 0 && m.rows.length ? `<tr class="total">${m.keys.map((k, i) => i === 0 ? '<td>Total quantity (all matching records)</td>' : i === qi ? `<td class="n">${fmt(totQ)}</td>` : '<td></td>').join('')}</tr>` : ''}</tbody></table></div>
+          ${m.rows.length > shown.length ? `<div class="row" style="margin-top:10px"><span class="muted">Showing ${fmt(shown.length)} of ${fmt(m.rows.length)} records.</span><button class="btn alt" id="ivMore">Show 200 more</button></div>` : ''}</div>`
+          : '<div class="card"><div class="note warn">Select at least one column to show.</div></div>';
+      } else {
+        const tot = m.body.reduce((a, r) => r.map((x, i) => i ? (a[i] || 0) + x : ''), []);
+        body = `<div class="card"><div class="tablewrap"><table><thead><tr>${m.head.map((h, i) => `<th class="${i ? 'n' : ''}">${h}</th>`).join('')}</tr></thead><tbody>
+          ${m.body.map(r => `<tr>${r.map((c, i) => `<td class="${i ? 'n' : ''}">${i ? fmt(c) : esc(c)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${m.head.length}" class="muted">No records match these filters.</td></tr>`}
+          ${m.body.length ? `<tr class="total"><td>Total</td>${tot.slice(1).map(c => `<td class="n">${fmt(c)}</td>`).join('')}</tr>` : ''}</tbody></table></div>
+          <p class="sub" style="margin:10px 0 0">${m.note}</p></div>`;
+      }
+    } catch (e) { body = `<div class="card"><div class="note err">${esc(e.message || e)}</div></div>`; }
+    out.innerHTML = tiles + bar + body;
+    out.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; draw(); });
+    out.querySelectorAll('[data-s]').forEach(h => h.onclick = () => { S.sort = {k: h.dataset.s, d: S.sort.k === h.dataset.s ? -S.sort.d : (['date', 'qty', 'rcv'].includes(h.dataset.s) ? -1 : 1)}; draw(); });
+    const more = $('#ivMore'); if (more) more.onclick = () => { S.limit += 200; draw(); };
+    $('#ivXl').onclick = () => {
+      if (!lastModel) return;
+      const m = lastModel, aoa = m.rows ? [m.head].concat(m.rows.map(r => m.keys.map(k => CELL[k](r).t))) : [m.head].concat(m.body);
+      downloadSheet(`Inventory_${({detail: 'Movements', loc: 'By_Location', prod: 'By_Product'})[S.view]}_${S.from}_to_${S.to}.xlsx`, aoa);
+    };
+  };
+
+  // ---- data loading ----
+  const load = async (force) => {
+    if (S.from > S.to) return note($('#ivMsg'), 'The "From date" must not be after the "To date".', 'warn');
+    note($('#ivMsg'), '');
+    const key = `${S.from}|${S.to}`;
+    if (force || invCache.key !== key) {
+      $('#ivOut').innerHTML = loading;
+      const res = await invFetch(S.from, S.to); invCache = {key, rows: res.rows, warn: res.warn};
+    }
+    if (invCache.warn.length) note($('#ivMsg'), `<b>Some data could not be loaded:</b><br>${invCache.warn.map(esc).join('<br>')}`, 'warn');
+    await draw();
+  };
+
+  // ---- events ----
+  pushUI(); fillPresets();
+  const dateChanged = () => { S.from = $('#ivFrom').value; S.to = $('#ivTo').value; S.range = 'custom'; $('#ivRange').value = 'custom'; if (S.from && S.to) load(); };
+  $('#ivFrom').onchange = dateChanged; $('#ivTo').onchange = dateChanged;
+  $('#ivRange').onchange = () => { const r = invRange($('#ivRange').value); if (!r) { S.range = 'custom'; return; } S.range = $('#ivRange').value; [S.from, S.to] = r; pushUI(); load(); };
+  $('#ivRefresh').onclick = () => load(true);
+  ['ivSrc', 'ivDst', 'ivAny', 'ivStatus', 'ivMin'].forEach(id => $('#' + id).onchange = () => { pullUI(); draw(); });
+  ['ivQ', 'ivPq'].forEach(id => $('#' + id).oninput = () => { clearTimeout(renderInvMove.t); renderInvMove.t = setTimeout(() => { pullUI(); draw(); }, 250); });
+  $('#ivTypes').onchange = () => { pullUI(); draw(); }; $('#ivCols').onchange = () => { pullUI(); draw(); };
+  $('#ivPreSave').onclick = () => {
+    pullUI(); const name = (prompt('Name for this saved filter:') || '').trim(); if (!name) return;
+    const p = invPresets(), {limit, sort, ...keep} = S; p[name] = keep; invSavePresets(p); fillPresets(); $('#ivPre').value = name; toast(`Saved filter "${name}"`);
+  };
+  $('#ivPreLoad').onclick = () => {
+    const p = invPresets()[$('#ivPre').value]; if (!p) return toast('Choose a saved filter first.', 'err');
+    Object.assign(S, p); const r = invRange(S.range); if (r) [S.from, S.to] = r; pushUI(); load();
+  };
+  $('#ivPreDel').onclick = () => {
+    const n = $('#ivPre').value, p = invPresets(); if (!p[n] || !confirm(`Delete the saved filter "${n}"?`)) return;
+    delete p[n]; invSavePresets(p); fillPresets(); toast('Saved filter deleted.');
+  };
+  $('#ivReset').onclick = () => { Object.keys(S).forEach(k => delete S[k]); renderInvMove(v); };
+  await load();
 }
 
 // ============================ AUDIT TRAIL ============================
