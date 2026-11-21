@@ -351,6 +351,7 @@ const TABS = [
   {id: 'planset', label: 'Planning Rules', central: true, render: renderPlanRules},
   {id: 'abc', label: 'ABC Analysis', central: true, render: renderAbc},
   {id: 'reorder', label: 'Reorder Planning', central: true, render: renderReorder},
+  {id: 'import', label: 'Import Planning', central: true, render: renderImport},
   {id: 'po', label: 'Purchase Orders', central: true, render: renderPO},
   {id: 'challan', label: 'Delivery Challan', render: renderChallan},
   {id: 'transfer', label: 'Transfer', central: true, render: v => stockOps(v, 'trf')},
@@ -364,7 +365,7 @@ const TABS = [
 ];
 function buildTabs() {
   $('#tabs').innerHTML = TABS.filter(t => tabOk(t))
-    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
+    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',import:'🚢',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
@@ -1492,6 +1493,255 @@ async function renderInvMove(v) {
   };
   $('#ivReset').onclick = () => { Object.keys(S).forEach(k => delete S[k]); renderInvMove(v); };
   await load();
+}
+
+// ============================ IMPORT PLANNING ============================
+// For imported (mostly organic, seasonal) products: when to place the next order so that the warehouse never runs out,
+// respecting (a) supplier lead time + customs/clearance time, (b) the months in which the product can be ordered at all,
+// (c) safety days, seasonal demand events and shelf life.
+const MON_LBL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const impS = {view: 'plan', p: {A: 14, B: 10, C: 7, clr: 7, tr: '0', so: true, sea: true, sup: '', abc: '', only: true, q: ''}};
+
+function parseMonths(txt) {   // "Oct-Feb", "3,4,5", "All" -> sorted month numbers, or null for every month
+  const s = String(txt ?? '').trim().toLowerCase();
+  if (!s || ['all', 'any', 'all year', 'all months', 'every month', 'year round'].includes(s)) return null;
+  const one = t => {
+    t = t.trim();
+    if (/^\d+$/.test(t)) { const n = +t; if (n < 1 || n > 12) throw new Error(`Month number "${t}" must be between 1 and 12.`); return n; }
+    const i = t.length >= 3 ? MON_LBL.findIndex(m => t.startsWith(m.toLowerCase())) : -1;
+    if (i < 0) throw new Error(`"${t}" is not a valid month. Use names like Oct, numbers like 10, or ranges like Oct-Feb.`);
+    return i + 1;
+  };
+  const set = new Set();
+  s.split(/[,;\/]+/).forEach(part => {
+    part = part.trim(); if (!part) return;
+    const m = part.split(/\s*[-–]\s*|\s+to\s+/);
+    if (m.length === 2) { const a = one(m[0]), b = one(m[1]); for (let x = a; ; x = x % 12 + 1) { set.add(x); if (x === b) break; } }
+    else if (m.length === 1) set.add(one(part));
+    else throw new Error(`Cannot read "${part}". Use a range like Oct-Feb.`);
+  });
+  return set.size === 12 ? null : [...set].sort((a, b) => a - b);
+}
+function fmtMonths(a) {
+  if (!a || !a.length || a.length >= 12) return 'All year';
+  const on = Array(12).fill(false); a.forEach(m => on[m - 1] = true); const runs = [];
+  for (let i = 0; i < 12; i++) if (on[i] && !on[(i + 11) % 12]) {
+    let len = 0; while (on[(i + len) % 12] && len < 12) len++;
+    runs.push(len === 1 ? MON_LBL[i] : `${MON_LBL[i]}–${MON_LBL[(i + len - 1) % 12]}`);
+  }
+  return runs.join(', ');
+}
+const monthOf = d => +d.slice(5, 7);
+const okDate = (d, M) => !M || M.includes(monthOf(d));
+const diffDays = (a, b) => Math.round((Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10)) - Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10))) / 86400000);
+const prevOk = (d, M) => { for (let i = 0; i <= 366; i++) { const x = addDays(d, -i); if (okDate(x, M)) return x; } return null; };   // latest allowed day on or before d
+const nextOk = (d, M) => { for (let i = 0; i <= 366; i++) { const x = addDays(d, i); if (okDate(x, M)) return x; } return null; };    // first allowed day on or after d
+const blockEnd = (d, M) => { let x = d; for (let i = 0; i < 366 && okDate(addDays(x, 1), M); i++) x = addDays(x, 1); return x; };         // last day of the open window that contains d
+const nextBlockStart = (d, M) => nextOk(addDays(blockEnd(d, M), 1), M);                                                                   // first day of the following window
+
+// Plans one product. ctx = {today, P (screen settings), cls, sup, base (daily demand before factors), trend, events, wh, sp, tr, oo}
+function impPlanRow(p, ctx) {
+  const {today: td, P, cls, sup, events} = ctx;
+  const lead = p.lead_time_days ?? sup?.lead_time_days ?? 14, clr = p.clearance_days ?? P.clr, L = lead + clr, review = sup?.review_days ?? 7;
+  const safety = ({A: P.A, B: P.B, C: P.C, X: 0})[cls] ?? 0, M = p.order_months && p.order_months.length && p.order_months.length < 12 ? p.order_months : null;
+  const pos = ctx.wh + ctx.sp + ctx.tr + ctx.oo, clamp = f => Math.min(4, Math.max(0.3, f));
+  const evF = H => P.sea ? eventFactor(events, p, td, Math.max(1, Math.min(730, Math.round(H)))) : 1;
+  const out = {p, cls, sup, lead, clr, L, review, safety, M, pos, wh: ctx.wh, sp: ctx.sp, tr: ctx.tr, oo: ctx.oo, D: 0, cover: Infinity, stockout: null, orderBy: null, arrival: null, gap: 0, qty: 0, lasts: 0, status: 'No demand', notes: []};
+  const B = L + safety + (M ? 0 : review);   // days that must be covered: delivery time + safety (+ one review cycle when ordering is possible any time)
+  let D = ctx.base * ctx.trend * clamp(evF(B));
+  if (!(D > 0)) return out;
+  const cover = pos / D, stockout = addDays(td, Math.floor(cover)), latest = addDays(stockout, -B);
+  let o;
+  if (latest >= td) { o = M ? prevOk(latest, M) : latest; if (o < td) o = null; }
+  if (o == null) o = okDate(td, M) ? td : nextOk(td, M);          // no allowed day left before the safe date: order at the first chance
+  const arrival = addDays(o, L), gap = Math.max(0, diffDays(stockout, arrival));
+  const T = M ? addDays(nextBlockStart(o, M), L + safety) : addDays(td, B);   // stock must last until the shipment of the next window / cycle has arrived
+  D = ctx.base * ctx.trend * clamp(evF(diffDays(td, T)));
+  const posA = Math.max(0, pos - D * diffDays(td, arrival));
+  let qty = Math.max(0, Math.ceil(D * Math.max(0, diffDays(arrival, T)) - posA - 1e-9));
+  if (qty > 0) { if (Number(p.moq) > 0) qty = Math.max(qty, Number(p.moq)); if (Number(p.pack_size) > 0) qty = Math.ceil(qty / Number(p.pack_size)) * Number(p.pack_size); }
+  Object.assign(out, {D, cover: pos / D, stockout, orderBy: o, arrival, gap, qty, lasts: qty > 0 ? qty / D : 0, coverUntil: T});
+  out.status = gap > 0 ? 'Stock-out risk' : qty <= 0 ? 'Covered' : o <= addDays(td, 7) ? 'Order now' : o <= addDays(td, 30) ? 'Plan this month' : 'Upcoming';
+  if (gap > 0) out.notes.push(`Expected stock-out of about ${gap} day${gap === 1 ? '' : 's'} before the shipment can arrive.`);
+  if (M && qty > 0) out.notes.push(okDate(td, M) ? `Order window is open until ${blockEnd(td, M)}.` : `Order window is closed; it opens on ${nextOk(td, M)}.`);
+  if (qty > 0 && Number(p.shelf_life_days) > 0 && out.lasts > Number(p.shelf_life_days)) out.notes.push(`This order lasts ${Math.round(out.lasts)} days, longer than the ${p.shelf_life_days}-day shelf life. Consider splitting the shipment.`);
+  return out;
+}
+
+async function renderImport(v) {
+  if (products.length && !('is_import' in products[0])) throw new Error('Run uol_step6_import_planning.sql in the Supabase SQL Editor first.');
+  const S = impS, whs = locations.filter(l => l.type === 'warehouse'), act = products.filter(p => p.is_active), td = today();
+  const winFrom = addDays(td, -(WINDOW_DAYS - 1)), prevFrom = addDays(winFrom, -WINDOW_DAYS), prevTo = addDays(winFrom, -1);
+  const [ls, fb, curP, prevP, abcP, evQ, supQ, trQ, ooQ, lcQ] = await Promise.all([liveStock(), rpcAll('forecast_base', {p_from: winFrom, p_to: td}, 'loc_id', 'prod_id'),
+    rpcAll('sales_agg', {p_from: winFrom, p_to: td, p_by_location: false}, 'prod_id'), rpcAll('sales_agg', {p_from: prevFrom, p_to: prevTo, p_by_location: false}, 'prod_id'),
+    rpcAll('sales_agg', {p_from: addDays(td, -(ABC_DAYS - 1)), p_to: td, p_by_location: false}, 'prod_id'),
+    db.from('season_events').select('*').eq('is_active', true), db.from('suppliers').select('*'),
+    db.from('v_in_transit').select('product_id,qty').limit(5000), db.from('v_on_order').select('product_id,qty'), db.from('v_last_cost').select('product_id,unit_cost')]);
+  const bad = [evQ, supQ, trQ, ooQ, lcQ].find(r => r.error); if (bad) throw need5(bad.error);
+  const mapP = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)])), curM = mapP(curP), prevM = mapP(prevP), abc = abcCompute(mapP(abcP), 80, 95).map;
+  const events = evQ.data, sups = supQ.data, supOf = p => p.supplier ? sups.find(s => norm(s.name) === norm(p.supplier)) : null;
+  const sumP = rows => { const m = new Map(); rows.forEach(r => m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.qty))); return m; };
+  const transit = sumP(trQ.data), onOrder = sumP(ooQ.data), lastCost = new Map(lcQ.data.map(r => [r.product_id, Number(r.unit_cost)]));
+  const whStock = new Map(), spStock = new Map(); ls.forEach(r => { const m = r.location_type === 'warehouse' ? whStock : spStock; m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.live_qty)); });
+  const fbByP = new Map(); fb.forEach(r => { if (!fbByP.has(r.prod_id)) fbByP.set(r.prod_id, []); fbByP.get(r.prod_id).push({sold: Number(r.sold), tracked: r.tracked_days, avail: r.avail_days}); });
+  const imports = act.filter(p => p.is_import !== false), supNames = [...new Set(imports.map(p => p.supplier).filter(Boolean))].sort();
+  const reloadProducts = async () => { const r = await db.from('products').select('*').order('name'); if (r.error) throw r.error; products = r.data; };
+
+  v.innerHTML = `<div class="card"><h2>Import Planning</h2>
+    <p class="sub">Forecasts when each imported product must be ordered so that stock is still available when the shipment arrives. For every product the planner combines
+      <b>supplier lead time + clearance days</b>, current stock (warehouse + sales points + in-transit + on order), forecast demand, <b>safety days</b> and the
+      <b>months in which that product can be ordered</b>. If ordering is only possible in some months, the order quantity is sized to last until the shipment from the <i>next</i> window arrives.</p>
+    <div class="row" id="imTabs"></div></div><div id="imBody"></div>`;
+  const tabs = [['plan', 'Order plan'], ['cal', '12-month calendar'], ['set', 'Import settings']];
+  const drawTabs = () => { $('#imTabs').innerHTML = tabs.map(([k, n]) => `<button class="btn ${S.view === k ? '' : 'alt'}" data-v="${k}">${n}</button>`).join('');
+    $('#imTabs').querySelectorAll('[data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; drawTabs(); draw(); }); };
+
+  // ---------- planning rows (shared by the plan and the calendar) ----------
+  let rows = [], qtyEdit = new Map(), chk = new Set();
+  const calc = () => { const P = S.p; return imports.map(p => {
+    const cls = (abc.get(p.id) || {}).cls || 'X', sup = supOf(p);
+    let tf = 1; const trm = +P.tr; if (trm) { const c = curM.get(p.id) || 0, pv = prevM.get(p.id) || 0; if (pv >= 10) { const lim = trm === 1 ? 0.25 : 0.5; tf = Math.min(1 + lim, Math.max(1 - lim, c / pv)); } }
+    const base = (fbByP.get(p.id) || []).reduce((a, b) => a + (P.so ? (b.avail > 0 ? b.sold / Math.max(b.avail, Math.min(7, b.tracked)) : 0) : b.sold / WINDOW_DAYS), 0);
+    const r = impPlanRow(p, {today: td, P, cls, sup, base, trend: tf, events, wh: Math.max(0, whStock.get(p.id) || 0), sp: Math.max(0, spStock.get(p.id) || 0), tr: transit.get(p.id) || 0, oo: onOrder.get(p.id) || 0});
+    r.cost = lastCost.get(p.id); return r; }); };
+  const ST = {'Stock-out risk': 'b-do_not_give', 'Order now': 'b-partial', 'Plan this month': 'b-dispatched', 'Upcoming': 'b-ordered', 'Covered': 'b-received', 'No demand': 'b-cancelled'};
+  const RANK = {'Stock-out risk': 0, 'Order now': 1, 'Plan this month': 2, 'Upcoming': 3, 'Covered': 4, 'No demand': 5};
+  const qOf = r => qtyEdit.has(r.p.id) ? qtyEdit.get(r.p.id) : r.qty;
+  const visible = (onlyAction) => rows.filter(r => (!onlyAction || r.qty > 0) && (!S.p.abc || r.cls === S.p.abc) && (!S.p.sup || (S.p.sup === '__none' ? !r.p.supplier : norm(r.p.supplier) === norm(S.p.sup))) && (!S.p.q || norm(r.p.name).includes(norm(S.p.q))))
+    .sort((a, b) => RANK[a.status] - RANK[b.status] || a.cover - b.cover);
+
+  // ---------- view 1: order plan ----------
+  const drawPlan = () => {
+    const P = S.p, b = $('#imBody');
+    b.innerHTML = `<div class="card"><h3>Planning settings</h3>
+      <div class="row"><div><label>Safety days — class A</label><input type="number" id="imA" value="${P.A}" min="0" style="min-width:0;width:90px"></div><div><label>Class B</label><input type="number" id="imB" value="${P.B}" min="0" style="min-width:0;width:90px"></div><div><label>Class C</label><input type="number" id="imC" value="${P.C}" min="0" style="min-width:0;width:90px"></div>
+        <div><label>Default clearance &amp; transport days</label><input type="number" id="imClr" value="${P.clr}" min="0" style="min-width:0;width:130px"></div>
+        <div><label>Sales trend</label><select id="imTr"><option value="0">Off</option><option value="1">Moderate (±25%)</option><option value="2">Full (±50%)</option></select></div>
+        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="imSo"> Ignore stock-out days</label>
+        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="imSea"> Apply seasonal events</label></div>
+      <div class="row" style="margin-top:10px"><div><label>Supplier</label><select id="imSup"><option value="">All suppliers</option>${supNames.map(n => `<option>${esc(n)}</option>`).join('')}<option value="__none">(no supplier on product)</option></select></div>
+        <div><label>ABC class</label><select id="imAbc"><option value="">All</option><option>A</option><option>B</option><option>C</option><option value="X">X (no sales)</option></select></div>
+        <div><label>Search product</label><input type="text" id="imQ" value="${esc(P.q)}" placeholder="Type to filter"></div>
+        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="imOnly"> Only products to order</label>
+        <div><label>Receiving warehouse</label><select id="imWh">${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
+        <button class="btn" id="imMk">Create PO(s) for selected</button><button class="btn alt" id="imX">Export Excel</button></div></div><div id="imK"></div><div id="imT"></div>`;
+    $('#imTr').value = P.tr; $('#imSo').checked = P.so; $('#imSea').checked = P.sea; $('#imSup').value = P.sup; $('#imAbc').value = P.abc; $('#imOnly').checked = P.only;
+    const recalc = () => { Object.assign(P, {A: +$('#imA').value || 0, B: +$('#imB').value || 0, C: +$('#imC').value || 0, clr: +$('#imClr').value || 0, tr: $('#imTr').value, so: $('#imSo').checked, sea: $('#imSea').checked});
+      rows = calc(); qtyEdit = new Map(); chk = new Set(rows.filter(r => r.qty > 0 && (r.status === 'Stock-out risk' || r.status === 'Order now')).map(r => r.p.id)); drawTable(); };
+    ['imA', 'imB', 'imC', 'imClr', 'imTr', 'imSo', 'imSea'].forEach(id => $('#' + id).oninput = recalc);
+    ['imSup', 'imAbc', 'imOnly'].forEach(id => $('#' + id).oninput = () => { P.sup = $('#imSup').value; P.abc = $('#imAbc').value; P.only = $('#imOnly').checked; drawTable(); });
+    $('#imQ').oninput = () => { P.q = $('#imQ').value; clearTimeout(drawPlan.t); drawPlan.t = setTimeout(drawTable, 200); };
+    $('#imX').onclick = () => downloadSheet(`Import_Plan_${td}.xlsx`, [['Code', 'Product', 'Class', 'Supplier', 'Warehouse stock', 'Sales point stock', 'In-transit', 'On order', 'Demand/day', 'Cover (days)', 'Stock-out date', 'Lead time', 'Clearance days', 'Order window', 'Order by', 'Arrival if ordered', 'Status', 'Order qty', 'Order lasts (days)', 'Last cost', 'Notes']]
+      .concat(visible(false).filter(r => r.qty > 0 || r.status === 'Stock-out risk').map(r => [r.p.sku || '', r.p.name, r.cls, r.p.supplier || '', r.wh, r.sp, r.tr, r.oo, +r.D.toFixed(2), Number.isFinite(r.cover) ? +r.cover.toFixed(1) : '', r.stockout || '', r.lead, r.clr, fmtMonths(r.M), r.orderBy || '', r.arrival || '', r.status, qOf(r), Math.round(r.lasts) || '', r.cost ?? '', r.notes.join(' ')])));
+    $('#imMk').onclick = () => {
+      const sel = rows.filter(r => chk.has(r.p.id) && qOf(r) > 0); if (!sel.length) return toast('Tick at least one product with an order quantity.', 'err');
+      const groups = new Map(), missing = new Set();
+      sel.forEach(r => { if (!r.sup) { missing.add(r.p.supplier || '(no supplier)'); return; } if (!groups.has(r.sup.id)) groups.set(r.sup.id, {sup: r.sup, lines: []}); groups.get(r.sup.id).lines.push({product_id: r.p.id, qty: qOf(r), unit_cost: r.cost ?? null}); });
+      if (missing.size) return toast(`Add these suppliers in Master Data → Suppliers first: ${[...missing].join(', ')}`, 'err');
+      const wh = $('#imWh').value; if (!wh) return toast('Choose the receiving warehouse.', 'err');
+      openForm(`Create ${groups.size} draft purchase order(s)`, [{k: 'info', label: 'Summary', value: [...groups.values()].map(g => `${g.sup.name}: ${g.lines.length} products`).join(' · '), readonly: true},
+        {k: 'date', label: 'PO date', type: 'date', value: td}, {k: 'note', label: 'Note (optional)'}], async f => {
+        const made = [];
+        try { for (const g of groups.values()) {
+          const lt = Math.max(...g.lines.map(l => { const r = rows.find(x => x.p.id === l.product_id); return r ? r.L : g.sup.lead_time_days; }));
+          const {data, error} = await db.rpc('create_po', {p_supplier: g.sup.id, p_warehouse: wh, p_date: f.date || td, p_expected: addDays(f.date || td, lt), p_note: f.note || null, p_lines: g.lines});
+          if (error) throw new Error(`${g.sup.name}: ${error.message}`); made.push(data); }
+        } catch (e) { throw new Error(e.message + (made.length ? ` (Already created: ${made.join(', ')})` : '')); }
+        toast(`${made.length} draft PO(s) created: ${made.join(', ')}`); await showTab('po');
+      });
+    };
+    recalc();
+  };
+  const kpi = () => {
+    const sel = rows.filter(r => chk.has(r.p.id) && qOf(r) > 0), val = sel.reduce((a, r) => a + qOf(r) * (r.cost || 0), 0), noCost = sel.filter(r => r.cost == null).length;
+    const closed = rows.filter(r => r.M && r.qty > 0 && !okDate(td, r.M)).length, due30 = rows.filter(r => r.qty > 0 && r.orderBy && r.orderBy <= addDays(td, 30)).length;
+    $('#imK').innerHTML = `<div class="grid" style="margin-bottom:14px"><div class="tile"><small>Imported products tracked</small><b>${rows.length}</b></div>
+      <div class="tile"><small>Stock-out risk (shipment arrives too late)</small><b>${rows.filter(r => r.status === 'Stock-out risk').length}</b></div>
+      <div class="tile"><small>Orders due within 30 days</small><b>${due30}</b></div>
+      <div class="tile"><small>Need ordering but window is closed</small><b>${closed}</b></div>
+      <div class="tile"><small>Selected for PO</small><b>${sel.length} products</b><small>${val ? 'Est. Tk ' + fmt(val) : ''}${noCost ? ` · ${noCost} without a known cost` : ''}</small></div></div>`;
+  };
+  const drawTable = () => {
+    const list = visible(S.p.only);
+    $('#imT').innerHTML = `<div class="card"><div class="tablewrap"><table><thead><tr><th></th><th>Product</th><th>Supplier</th><th class="n">Stock now</th><th class="n">In pipeline</th><th class="n">Demand / day</th><th class="n">Cover (days)</th><th>Stock-out date</th><th class="n">Lead + clearance</th><th>Order window</th><th>Order by</th><th>Status</th><th class="n">Order qty</th><th class="n">Lasts (days)</th><th class="n">Value</th><th>Notes</th></tr></thead><tbody>
+      ${list.map(r => { const late = r.orderBy && r.orderBy <= td && r.qty > 0; return `<tr><td><input type="checkbox" data-k="${r.p.id}" ${chk.has(r.p.id) ? 'checked' : ''} ${r.qty > 0 ? '' : 'disabled'}></td><td style="min-width:210px">${esc(r.p.name)} <span class="badge ${CLS_BADGE[r.cls]}">${r.cls}</span></td>
+        <td>${r.sup ? esc(r.sup.name) : r.p.supplier ? `<span class="muted" title="Not in the suppliers list">${esc(r.p.supplier)} ⚠</span>` : '<span class="muted">—</span>'}</td><td class="n">${fmt(r.wh + r.sp)}</td><td class="n">${fmt(r.tr + r.oo)}</td>
+        <td class="n">${fmt(r.D)}</td><td class="n">${Number.isFinite(r.cover) ? fmt(r.cover) : '—'}</td><td style="white-space:nowrap">${r.stockout || '—'}</td><td class="n">${r.lead} + ${r.clr}</td><td style="white-space:nowrap">${fmtMonths(r.M)}</td>
+        <td style="white-space:nowrap;${late ? 'color:#b91c1c;font-weight:700' : ''}">${r.orderBy ? (r.orderBy <= td && r.qty > 0 ? 'Now' : r.orderBy) : ''}</td><td><span class="badge ${ST[r.status]}">${r.status}</span></td>
+        <td class="n">${r.qty > 0 ? `<input type="number" min="0" step="any" data-q="${r.p.id}" value="${qOf(r)}" style="min-width:0;width:90px;text-align:right">` : '0'}</td><td class="n">${r.lasts ? fmt(Math.round(r.lasts)) : ''}</td><td class="n" id="iv_${r.p.id}">${r.cost == null || !qOf(r) ? '' : fmt(qOf(r) * r.cost)}</td>
+        <td style="min-width:240px;font-size:12.5px">${r.notes.map(esc).join('<br>')}</td></tr>`; }).join('') || '<tr><td colspan="16" class="muted">Nothing to order with these settings.</td></tr>'}
+      </tbody></table></div><p class="sub" style="margin:10px 0 0"><b>Order by</b> = the latest allowed day to place the order so that it arrives before stock runs out. <b>Lasts</b> = how many days the suggested quantity covers on its own. You can edit the quantity before creating the PO.</p></div>`;
+    $('#imT').querySelectorAll('[data-k]').forEach(c => c.onchange = () => { c.checked ? chk.add(c.dataset.k) : chk.delete(c.dataset.k); kpi(); });
+    $('#imT').querySelectorAll('[data-q]').forEach(i => i.onchange = () => { const r = rows.find(x => x.p.id === i.dataset.q), n = Number(i.value); if (!(n >= 0)) { i.value = qOf(r); return; } qtyEdit.set(r.p.id, n);
+      $('#iv_' + r.p.id).textContent = r.cost == null || !n ? '' : fmt(n * r.cost); kpi(); });
+    kpi();
+  };
+
+  // ---------- view 2: 12-month calendar ----------
+  const drawCal = () => {
+    if (!rows.length) rows = calc();
+    const months = []; for (let i = 0, y = +td.slice(0, 4), m = monthOf(td); i < 12; i++, m++) { if (m > 12) { m = 1; y++; } months.push({y, m, key: `${y}-${String(m).padStart(2, '0')}`}); }
+    const list = visible(false).filter(r => r.D > 0);
+    $('#imBody').innerHTML = `<div class="card"><h3>Next 12 months</h3><p class="sub">Shaded months are the months in which the product can be ordered. <b>O</b> = latest day to order, <b>A</b> = arrival of that order, <b>S</b> = month the current stock runs out.</p>
+      <div class="row" style="margin-bottom:10px"><div><label>Supplier</label><select id="caSup"><option value="">All suppliers</option>${supNames.map(n => `<option>${esc(n)}</option>`).join('')}</select></div><div><label>Search product</label><input type="text" id="caQ" value="${esc(S.p.q)}"></div></div>
+      <div class="tablewrap"><table style="min-width:900px"><thead><tr><th>Product</th>${months.map(m => `<th class="n" style="text-align:center">${MON_LBL[m.m - 1]}<br><small>${String(m.y).slice(2)}</small></th>`).join('')}</tr></thead><tbody>
+      ${list.map(r => { const ok = r.orderBy ? r.orderBy.slice(0, 7) : '', ak = r.arrival ? r.arrival.slice(0, 7) : '', sk = r.stockout ? r.stockout.slice(0, 7) : '';
+        return `<tr><td style="white-space:nowrap">${esc(r.p.name)} <span class="badge ${ST[r.status]}">${r.status}</span></td>${months.map(m => {
+          const open = okDate(`${m.key}-15`, r.M), mk = []; if (r.qty > 0 && m.key === ok) mk.push('O'); if (r.qty > 0 && m.key === ak) mk.push('A'); if (m.key === sk) mk.push('S');
+          return `<td style="text-align:center;padding:6px 4px;${open ? 'background:#dff3e5;' : 'background:#f3f4f6;color:#9ca3af;'}${mk.includes('S') ? 'box-shadow:inset 0 0 0 2px #dc2626;' : ''}font-weight:700;white-space:nowrap">${mk.map(x => `<span style="color:${x === 'S' ? '#b91c1c' : x === 'O' ? '#92400e' : '#0a7694'}">${x}</span>`).join(' ') || '&nbsp;'}</td>`; }).join('')}</tr>`; }).join('') || `<tr><td colspan="13" class="muted">No products with demand match these filters.</td></tr>`}
+      </tbody></table></div></div>`;
+    $('#caSup').value = S.p.sup === '__none' ? '' : S.p.sup;
+    $('#caSup').onchange = () => { S.p.sup = $('#caSup').value; drawCal(); }; $('#caQ').oninput = () => { S.p.q = $('#caQ').value; clearTimeout(drawCal.t); drawCal.t = setTimeout(drawCal, 250); };
+  };
+
+  // ---------- view 3: import settings ----------
+  const drawSet = () => {
+    const q = norm(S.p.q), list = act.filter(p => !q || norm(p.name).includes(q));
+    $('#imBody').innerHTML = `<div class="card"><h3>Import settings per product</h3>
+      <p class="sub"><b>Order months</b> = the months in which this product can be ordered (for example the harvest or export season). Leave it as "All year" if you can order at any time. <b>Clearance days</b> = extra days for shipping, customs and transport on top of the supplier lead time. <b>Shelf life</b> is optional and only used to warn about orders that last longer than the product stays fresh. Local (non-imported) products can be switched off here and are left out of this planner.</p>
+      <div class="row"><div><label>Search product</label><input type="text" id="seQ" value="${esc(S.p.q)}"></div><button class="btn alt" id="seX">Download current settings</button>
+        <div><label>Settings sheet (.xlsx / .csv)</label><input type="file" id="seFile" accept=".xlsx,.xls,.csv"></div><button class="btn" id="seGo">Import / Update</button></div><div id="seMsg"></div>
+      <div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Code</th><th>Product</th><th>Imported</th><th>Order months</th><th class="n">Lead time</th><th class="n">Clearance days</th><th class="n">Shelf life (days)</th><th></th></tr></thead><tbody>
+      ${list.map(p => { const sup = supOf(p); return `<tr><td>${esc(p.sku || '')}</td><td>${esc(p.name)}</td><td>${p.is_import === false ? 'No' : 'Yes'}</td><td>${fmtMonths(p.order_months)}</td><td class="n">${p.lead_time_days ?? sup?.lead_time_days ?? 14}</td><td class="n">${p.clearance_days ?? '<span class="muted">default</span>'}</td><td class="n">${p.shelf_life_days ?? ''}</td><td><button class="mini" data-e="${p.id}">Edit</button></td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No products found.</td></tr>'}</tbody></table></div></div>`;
+    $('#seQ').oninput = () => { S.p.q = $('#seQ').value; clearTimeout(drawSet.t); drawSet.t = setTimeout(drawSet, 250); };
+    const mTxt = p => p.order_months && p.order_months.length && p.order_months.length < 12 ? fmtMonths(p.order_months) : 'All';
+    $('#imBody').querySelectorAll('[data-e]').forEach(btn => btn.onclick = () => { const p = products.find(x => x.id === btn.dataset.e);
+      openForm(`Import settings — ${p.name}`, [{k: 'imp', label: 'Imported product', value: p.is_import === false ? 'no' : 'yes', options: [['yes', 'Yes — imported'], ['no', 'No — local purchase']]},
+        {k: 'mo', label: 'Months when ordering is possible (e.g. Oct-Feb, or 3,4,5; type All for every month)', value: mTxt(p)},
+        {k: 'cl', label: 'Clearance and transport days after shipment (optional)', type: 'number', value: p.clearance_days}, {k: 'sh', label: 'Shelf life in days (optional)', type: 'number', value: p.shelf_life_days}], async f => {
+        const row = {is_import: f.imp === 'yes', order_months: parseMonths(f.mo), ...optNum('clearance_days', f.cl, p), ...optNum('shelf_life_days', f.sh, p)};
+        ['clearance_days', 'shelf_life_days'].forEach(k => { if (row[k] != null && (!Number.isInteger(row[k]) || row[k] < 0)) throw new Error('Days must be whole numbers, zero or more.'); });
+        const r = await db.from('products').update(row).eq('id', p.id).select('id'); if (r.error) throw r.error; if (!r.data.length) throw new Error('Not allowed for your role.');
+        toast('Saved.'); await reloadProducts(); await showTab('import'); }); });
+    $('#seX').onclick = () => downloadSheet('Import_Settings.xlsx', [['Product Code', 'Product Name', 'Imported (Yes/No)', 'Order Months', 'Clearance Days', 'Shelf Life (days)']].concat(act.map(p => [p.sku || '', p.name, p.is_import === false ? 'No' : 'Yes', mTxt(p), p.clearance_days ?? '', p.shelf_life_days ?? ''])));
+    $('#seGo').onclick = async () => {
+      const msg = $('#seMsg'), btn = $('#seGo'); note(msg, '');
+      try {
+        const f = $('#seFile').files[0]; if (!f) return note(msg, 'Please choose the settings sheet first.', 'warn');
+        const bySku = new Map(products.filter(p => p.sku).map(p => [norm(p.sku), p])), byName = productMap(), upd = [], errs = [];
+        (await readSheet(f)).forEach((r, i) => {
+          const code = String(pick(r, 'Product Code', 'Code')).trim(), name = String(pick(r, 'Product Name', 'Product')).trim(); if (!code && !name) return;
+          const p = (code && bySku.get(norm(code))) || byName.get(norm(name)); if (!p) return errs.push(`Row ${i + 2}: unknown product "${name || code}".`);
+          const im = String(pick(r, 'Imported (Yes/No)', 'Imported')).trim(), mo = String(pick(r, 'Order Months', 'Months')).trim(), cl = String(pick(r, 'Clearance Days')).trim(), sh = String(pick(r, 'Shelf Life (days)', 'Shelf Life')).trim();
+          const row = {id: p.id, name: p.name};
+          try { if (im !== '') row.is_import = yes(im); if (mo !== '') row.order_months = parseMonths(mo);
+            for (const [k, val] of [['clearance_days', cl], ['shelf_life_days', sh]]) if (val !== '') { const n = num(val); if (!Number.isInteger(n) || n < 0) throw new Error('days must be a whole number, zero or more'); row[k] = n; }
+          } catch (e) { return errs.push(`Row ${i + 2} (${p.name}): ${e.message}`); }
+          if (Object.keys(row).length > 2) upd.push(row);
+        });
+        if (errs.length) return note(msg, errs.slice(0, 15).map(esc).join('<br>'), 'err');
+        if (!upd.length) return note(msg, 'No settings found in the sheet. Leave a cell empty to keep the current value.', 'info');
+        btn.disabled = true;
+        for (let i = 0; i < upd.length; i += 10) {
+          const res = await Promise.all(upd.slice(i, i + 10).map(({id, name, ...row}) => db.from('products').update(row).eq('id', id).select('id')));
+          const e = res.find(x => x.error || !x.data.length); if (e) throw (e.error || new Error('Not allowed for your role.'));
+        }
+        toast(`${upd.length} product(s) updated.`); await reloadProducts(); await showTab('import');
+      } catch (e) { note(msg, esc(e.message || e), 'err'); } finally { btn.disabled = false; }
+    };
+  };
+  const draw = () => S.view === 'cal' ? drawCal() : S.view === 'set' ? drawSet() : drawPlan();
+  drawTabs(); draw();
 }
 
 // ============================ AUDIT TRAIL ============================
