@@ -608,7 +608,7 @@ async function renderTestData(v) {
   <div class="card"><h3>Step 1 — Clear old data (skip if you already ran it, or if the tables are already empty)</h3><p class="muted">Run this once in <b>Supabase → SQL Editor</b> (the app cannot delete ledger rows). It keeps a backup copy of every table it clears.</p>
   <textarea id="tdSql" readonly style="width:100%;height:150px;font:12px ui-monospace,Consolas,monospace">${esc(TD_SQL)}</textarea><div class="row" style="margin-top:8px"><button class="btn alt" id="tdCopy">Copy SQL</button></div></div>
   <div class="card" style="margin-top:14px"><h3>Step 2 — Generate test data for ALL modules</h3>
-  <label>Random seed (same seed = same numbers; type another number for a different random set)</label><input type="number" id="tdSeed" value="20261122" style="max-width:200px;margin-bottom:8px"><br><button class="btn" id="tdGo">Generate test data for all modules</button><div id="tdLog" style="margin-top:10px;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap"></div></div>
+  <div id="tdState" style="margin-bottom:8px"></div><label>Random seed (same seed = same numbers; type another number for a different random set)</label><input type="number" id="tdSeed" value="20261122" style="max-width:200px;margin-bottom:8px"><br><button class="btn" id="tdGo">Generate test data for all modules</button><div id="tdLog" style="margin-top:10px;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap"></div></div>
   <div class="card" style="margin-top:14px"><h3>Forecast walkthrough (live from the planner, for 8 sample products)</h3><p class="muted">Use after the data is generated. Shows how the planner turns sales into demand, reorder level and a suggested order. Low products are listed first.</p><button class="btn alt" id="tdFc">Show forecast walkthrough</button><div id="tdFcOut" style="margin-top:10px"></div></div>
   <div class="card" style="margin-top:14px"><h3>How the random numbers are made</h3>
   <table style="min-width:0"><tbody>
@@ -619,6 +619,8 @@ async function renderTestData(v) {
   </tbody></table>
   <div class="row" style="margin-top:10px"><button class="btn alt" data-go="plan">Open Distribution &amp; Forecasting</button><button class="btn alt" data-go="reorder">Open Reorder Planning</button><button class="btn alt" data-go="dashboard">Open Dashboard</button></div></div>`;
   v.querySelectorAll('[data-go]').forEach(b => b.onclick = () => showTab(b.dataset.go));
+  (async () => { try { const c = async t => (await db.from(t).select('id', {count: 'exact', head: true})).count || 0; const [x, y, z] = await Promise.all([c('stock_ledger'), c('daily_sales'), c('purchase_orders')]);
+    note($('#tdState'), x || y || z ? `<b>Old data is still in the database</b> (ledger ${x}, sales ${y}, POs ${z}). Generate will not write anything until Step 1 (the SQL) has run successfully. Screens showing the same numbers for every location are this old data.` : '<b>Database is empty — ready.</b> Press Generate.', x || y || z ? 'err' : 'info'); } catch (e) {} })();
   $('#tdCopy').onclick = async () => { try { await navigator.clipboard.writeText(TD_SQL); } catch (e) { $('#tdSql').select(); document.execCommand('copy'); } toast('SQL copied. Paste it in Supabase → SQL Editor and run it.'); };
   $('#tdFc').onclick = async () => {
     const o = $('#tdFcOut'); o.textContent = 'Loading…';
