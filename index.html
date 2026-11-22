@@ -36,7 +36,6 @@ body{margin:0;color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,-apple-system,
 .chip{border-radius:999px;padding:6px 14px;font-weight:600;font-size:12.5px;border:1px solid}
 .chip.db{background:var(--blue-soft);color:var(--blue);border-color:#b7e3f1}
 .chip.clock{background:var(--green-soft);color:var(--deep);border-color:#bfe5c9;font-family:ui-monospace,Menlo,Consolas,monospace}
-.chip.live{background:#e8f8ee;color:#166534;border-color:#b7e6c6;cursor:pointer}.chip.live.off{background:#fef3c7;color:#92400e;border-color:#fde68a}
 .loginas{display:flex;align-items:center;gap:10px;background:var(--green-soft);border:1px solid #bfe5c9;border-radius:999px;padding:4px 5px 4px 14px}
 .loginas span{font-weight:700;color:var(--deep);font-size:11.5px;letter-spacing:.5px}
 .loginas select{border:1px solid #cfe6d8;border-radius:999px;padding:7px 14px;font-size:14px;background:#fff;min-width:230px;color:var(--ink)}
@@ -124,6 +123,7 @@ tr.total td{font-weight:800;background:#e8f6ee!important;color:var(--deep);borde
 .login-card .login-logo{width:230px;max-width:80%;height:auto;margin:6px auto 4px;display:block}
 .login-card label,.login-card input{text-align:left}
 .login-card input{width:100%}
+#tabs button,.btn,.mini,.badge{user-select:none;-webkit-user-select:none}
 </style>
 </head>
 <body>
@@ -132,7 +132,6 @@ tr.total td{font-weight:800;background:#e8f6ee!important;color:var(--deep);borde
   <div class="chips">
     <span class="chip db">Database: Supabase</span>
     <span class="chip clock" id="clock"></span>
-    <span class="chip live off" id="liveChip" title="Click to refresh the live data now" style="cursor:pointer">● Live data</span>
     <div class="loginas"><span>👤 LOGIN AS</span><select id="loginAs"></select></div>
   </div>
 </header>
@@ -182,20 +181,16 @@ function makeClient(role, locationId) {
     global: {headers: {'x-demo-role': role, 'x-demo-location': locationId || ''}}
   });
 }
-async function fetchAll(build) {
-  let out = [], from = 0; const step = 1000;
-  for (;;) {
-    const {data, error} = await build(from, from + step - 1);
-    if (error) throw error;
-    out = out.concat(data);
-    if (data.length < step) break;
-    from += step;
+async function fetchAll(build) {   // pages of 1000 rows; after a full first page the next pages are requested four at a time
+  const step = 1000, first = await build(0, step - 1); if (first.error) throw first.error;
+  let out = first.data; if (out.length < step) return out;
+  for (let from = step; ; from += 4 * step) {
+    const res = await Promise.all([0, 1, 2, 3].map(i => build(from + i * step, from + (i + 1) * step - 1)));
+    for (const r of res) { if (r.error) throw r.error; out = out.concat(r.data); if (r.data.length < step) return out; }
   }
-  return out;
 }
 function toast(msg, type = 'ok') {
   const t = $('#toast'); t.textContent = msg; t.className = 'show ' + type;
-  if (type === 'ok') { try { Hub.invalidate(); } catch (e) { /* hub not ready yet */ } }
   clearTimeout(toast.t); toast.t = setTimeout(() => t.className = '', 6000);
 }
 const note = (el, html, type = 'info') => { el.innerHTML = html ? `<div class="note ${type}">${html}</div>` : ''; };
@@ -329,11 +324,10 @@ function buildLoginAs() {
 async function applySession() {
   const [role, loc] = $('#loginAs').value.split('|');
   session = {role, locationId: loc || null};
-  db = makeClient(role, session.locationId);
+  db = makeClient(role, session.locationId); dcReset();
   try {
-    const l = await db.from('locations').select('*').eq('is_active', true).order('type').order('name');
+    const [l, p] = await Promise.all([db.from('locations').select('*').eq('is_active', true).order('type').order('name'), db.from('products').select('*').order('name'), loadFcSettings()]);
     if (l.error) throw l.error; locations = l.data;
-    const p = await db.from('products').select('*').order('name');
     if (p.error) throw p.error; products = p.data;
   } catch (e) { toast(e.message, 'err'); return; }
   buildTabs();
@@ -363,32 +357,155 @@ const TABS = [
   {id: 'qcfail', label: 'QC Fail', render: v => stockOps(v, 'qc')},
   {id: 'stockdocs', label: 'Stock Documents', render: v => stockOps(v, 'docs')},
   {id: 'stockops', label: 'Stock Operations', central: true, render: v => stockOps(v, 'cnt')},
-  {id: 'health', label: 'Data Health Check', central: true, render: renderHealth},
   {id: 'master', label: 'Master Data', central: true, render: renderMaster},
   {id: 'audit', label: 'Audit Trail', admin: true, render: renderAudit}
 ];
 function buildTabs() {
   $('#tabs').innerHTML = TABS.filter(t => tabOk(t))
-    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',import:'🚢',health:'🩺',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
+    .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',import:'🚢',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
+let renderSeq = 0;   // every page change gets a number; a slower, older page can never draw over a newer one
+function friendlyError(e, id) {
+  const raw = String((e && e.message) || e); let title = 'This page could not be loaded', hint = 'Please try again. If it keeps happening, tell the admin and mention the time shown below.';
+  if (/Failed to fetch|NetworkError|Load failed/i.test(raw)) { title = 'No connection to the database'; hint = 'Check your internet connection and try again.'; }
+  else if (/statement timeout|canceling statement/i.test(raw)) { title = 'The database took too long to answer'; hint = 'Please try again in a moment. If it keeps happening, the admin should check the database speed.'; }
+  else if (/Run uol_|Run the latest SQL|is missing|schema cache|Could not find the (table|function)/i.test(raw)) { title = 'Database setup is not complete'; hint = raw; }
+  else if (/is null|is undefined|Cannot read|can't access/i.test(raw)) hint = 'The page changed while it was loading. Please try again.';
+  return `<div class="card" style="max-width:680px"><h3 style="margin-top:0">${esc(title)}</h3><p class="sub">${esc(hint)}</p><div class="row"><button class="btn" id="errRetry">Try again</button></div>
+    <details style="margin-top:12px"><summary class="muted" style="cursor:pointer">Technical details</summary><pre style="white-space:pre-wrap;font-size:12px;background:#f3f4f6;padding:10px;border-radius:8px;margin-top:8px">${esc(raw)}\n${new Date().toLocaleString('en-GB', {timeZone: TZ})} · ${esc(id)}</pre></details></div>`;
+}
 async function showTab(id) {
-  currentTab = id; Hub.listeners = []; Hub.start();
+  const my = ++renderSeq, live = () => my === renderSeq;
+  currentTab = id; clearInterval(liveTimer); DC.at = 0;
   $('#tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === id));
   const v = $('#view'); v.innerHTML = loading;
-  try { await TABS.find(t => t.id === id).render(v); }
-  catch (e) { v.innerHTML = `<div class="card"><div class="note err">${esc(e.message || e)}</div></div>`; }
+  // the page code gets a guarded handle: once a newer page has started, everything the old one still tries to draw is ignored
+  const guarded = new Proxy(v, {
+    get: (t, k) => { const x = t[k]; return typeof x === 'function' ? (...a) => (live() ? x.apply(t, a) : undefined) : x; },
+    set: (t, k, val) => { if (live()) t[k] = val; return true; }
+  });
+  try { await TABS.find(t => t.id === id).render(guarded); }
+  catch (e) {
+    if (!live()) return;   // an older page failing because we already moved on is not an error for the user
+    console.error(e); v.innerHTML = friendlyError(e, id); const r = $('#errRetry'); if (r) r.onclick = () => showTab(id); return;
+  }
+  if (!live()) return;
+  if (FC_TABS.includes(id) && isCentral()) {
+    v.insertAdjacentHTML('afterbegin', '<div id="fcH"></div>');
+    fcHealth($('#fcH')).catch(() => { const h = $('#fcH'); if (h) h.remove(); });
+    liveWatch(id);
+  }
 }
+// leftovers of a page the user has already left must not show raw technical errors
+window.addEventListener('unhandledrejection', e => {
+  const m = String((e.reason && e.reason.message) || e.reason || ''); console.error(e.reason); e.preventDefault();
+  if (!/is null|is undefined|Cannot read|can't access|reading '/i.test(m)) toast('Something went wrong. Please try again.', 'err');
+});
 
 // ---------- data helpers ----------
 const WINDOW_DAYS = 30;
+// ---------- ONE live demand engine shared by Distribution, Reorder and Import planning ----------
+// forecast_live (see uol_live_forecast_engine.sql) gives, per sales point x product, an average daily sales that
+//   * counts recent days more (half-life FC.hl days), so a weak day lowers and a strong day raises the forecast at once,
+//   * skips days the product had no stock (stock-out) and days the sales point sent no sales data.
+const FC = {hl: 4, days: 60};
+const FC_HL = [[2, 'Very fast'], [4, 'Fast'], [7, 'Balanced'], [14, 'Stable']];
+// ---------- open purchase orders as dated arrivals, and a day-by-day stock projection ----------
+// Goods on an open PO are NOT stock until they arrive. The projection runs the current stock down at the live daily demand,
+// adds each PO on its expected date, and reports every period in which the shelves would be empty before the PO arrives.
+async function loadArrivals() {
+  const r = await db.from('purchase_orders').select('po_no,po_date,expected_date,status,po_lines(product_id,ordered_qty,received_qty)').in('status', ['ordered', 'partial']);
+  if (r.error) throw need5(r.error);
+  const m = new Map();
+  r.data.forEach(po => (po.po_lines || []).forEach(l => { const bal = Number(l.ordered_qty) - Number(l.received_qty); if (!(bal > 0)) return;
+    if (!m.has(l.product_id)) m.set(l.product_id, []); m.get(l.product_id).push({po: po.po_no, date: po.expected_date, base: po.po_date, qty: bal}); }));
+  return m;
+}
+// arrivals: [{date, qty, po}] (dates already filled in). Returns the final run-out date, the empty-shelf periods and the stock on any later day.
+function projectStock(onhand, D, arrivals, td) {
+  const evs = arrivals.map(a => ({t: Math.max(0, diffDays(td, a.date)), qty: a.qty, po: a.po})).sort((x, y) => x.t - y.t);
+  let t = 0, S = Math.max(0, onhand); const gaps = []; let tail = null;
+  for (const e of evs) {
+    const use = D * (e.t - t);
+    if (D > 0 && S - use < 0) { const out = t + S / D; gaps.push({from: addDays(td, Math.floor(out)), to: addDays(td, e.t), days: e.t - out, units: D * (e.t - out), po: e.po}); S = 0; } else S -= use;
+    S += e.qty; t = e.t;
+  }
+  const runOut = D > 0 ? addDays(td, Math.floor(t + S / D)) : null;
+  const projAt = d => { let tt = 0, ss = Math.max(0, onhand); for (const e of evs) { if (e.t > d) break; ss = Math.max(0, ss - D * (e.t - tt)) + e.qty; tt = e.t; } return Math.max(0, ss - D * (d - tt)); };
+  return {runOut, gaps, gapDays: gaps.reduce((a, g) => a + g.days, 0), projAt};
+}
+
+const fcLoad = td => rpcAll('forecast_live', {p_to: td, p_days: FC.days, p_halflife: FC.hl}, 'loc_id', 'prod_id');
+const fcRow = r => ({sold: Number(r.sold), tracked: r.tracked_days, avail: r.avail_days, so: r.so_days, unrep: r.unrep_days, w: Number(r.wavg), last: r.last_sale});
+const FC_ZERO = {sold: 0, tracked: 0, avail: 0, so: 0, unrep: 0, w: 0, last: null};
+// daily demand of one sales point x product; with "ignore stock-out" the live weighted figure is used
+const fcBase = (b, ignoreStockout) => {
+  if (!ignoreStockout) return b.sold / WINDOW_DAYS;
+  const need = Math.min(7, Math.max(1, b.tracked - b.unrep));   // reported days we would like to see
+  return b.avail > 0 ? b.w * Math.min(1, b.avail / need) : 0;
+};
+async function loadFcSettings() {
+  try { const r = await db.from('app_settings').select('key,value').eq('key', 'fc_halflife'); const h = Number(((r.data || [])[0] || {}).value); if (FC_HL.some(x => x[0] === h)) FC.hl = h; } catch (e) {}
+}
+function persistUi(scope, ids) {   // keeps screen settings across the automatic refresh
+  ids.forEach(id => { const el = document.getElementById(id); if (!el) return; const k = `uol_ui_${scope}_${id}`; let sv = null; try { sv = localStorage.getItem(k); } catch (e) {}
+    if (sv != null) { if (el.type === 'checkbox') el.checked = sv === '1'; else el.value = sv; }
+    const save = () => { try { localStorage.setItem(k, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch (e) {} };
+    el.addEventListener('input', save); el.addEventListener('change', save); });
+}
+// forecast data health: a sales point that stops sending sales data makes its forecast old
+async function fcHealth(el) {
+  const td = today(), yest = addDays(td, -1), sps = locations.filter(l => l.type === 'sales_point');
+  const rows = await rpcAll('sales_coverage', {p_from: addDays(td, -14), p_to: td}, 'loc_id', 'd');
+  const by = new Map(); rows.forEach(r => { if (!by.has(r.loc_id)) by.set(r.loc_id, new Set()); by.get(r.loc_id).add(r.d); });
+  const late = [], gaps = [];
+  sps.forEach(l => { const s0 = by.get(l.id) || new Set(), last = [...s0].sort().pop(); if (!last || last < yest) late.push(`${l.name} (${last ? 'last sales ' + last : 'no sales data'})`);
+    let miss = 0; for (let i = 1; i <= 14; i++) if (!s0.has(addDays(td, -i))) miss++; if (miss && last) gaps.push(`${l.name}: ${miss} day${miss === 1 ? '' : 's'}`); });
+  const hl = (FC_HL.find(x => x[0] === FC.hl) || [0, FC.hl + '-day'])[1];
+  el.className = 'note ' + (late.length ? 'warn' : 'ok'); el.style.margin = '0 0 12px';
+  el.innerHTML = `<b>🟢 Live forecast</b> · responsiveness: ${esc(hl)} · updated ${new Date().toLocaleTimeString('en-GB', {timeZone: TZ})}<br>` + (late.length
+    ? `⚠ <b>${late.length} sales point${late.length === 1 ? '' : 's'} not reported up to ${yest}:</b> ${late.map(esc).join('; ')}. Their forecast still uses their last reported days; upload the missing sales to bring it up to date.`
+    : `All ${sps.length} sales points reported up to ${yest}.`)
+    + (gaps.length ? `<br><span class="muted">Days with no sales data in the last 14 days are skipped (not counted as zero sales): ${gaps.map(esc).join('; ')}.</span>` : '');
+}
+// screens that depend on the forecast refresh themselves when new data arrives
+const FC_TABS = ['dashboard', 'plan', 'reorder', 'import'];
+let liveTimer = null, liveVer = null;
+const dataVersion = async () => { try { const r = await db.rpc('data_version'); return r.error ? null : r.data; } catch (e) { return null; } };
+// ---------- speed: results shared by all screens while the data has not changed ----------
+const DC = {ver: null, at: 0, map: new Map()};
+function dcReset() { DC.map.clear(); DC.ver = null; DC.at = 0; }
+async function dcSync() {
+  if (Date.now() - DC.at < 4000) return;
+  const v = await dataVersion(); DC.at = Date.now();
+  if (v == null || v !== DC.ver) { DC.map.clear(); DC.ver = v; }
+}
+async function dc(key, loader) {
+  await dcSync();
+  if (!DC.map.has(key)) DC.map.set(key, loader().catch(e => { DC.map.delete(key); throw e; }));
+  return DC.map.get(key);
+}
+async function liveWatch(id) {
+  const seq = renderSeq; clearInterval(liveTimer); liveVer = await dataVersion(); if (liveVer == null || seq !== renderSeq) return;
+  liveTimer = setInterval(async () => {
+    if (currentTab !== id || seq !== renderSeq || document.hidden) return;
+    const nv = await dataVersion(); if (nv == null || nv === liveVer || seq !== renderSeq) return;
+    const ae = document.activeElement, busy = $('#ov') || (ae && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ae.tagName) && $('#view').contains(ae));
+    if (busy) { if (!$('#fcLive')) $('#view').insertAdjacentHTML('afterbegin', `<div id="fcLive" class="note warn" style="margin:0 0 12px">New data has arrived. <button class="mini" id="fcLiveBtn">Refresh forecast</button></div>`), $('#fcLiveBtn').onclick = () => showTab(id); return; }
+    liveVer = nv; await showTab(id); toast('New data arrived: forecast refreshed.');
+  }, 30000);
+}
+
 async function liveStock(locIds) {
-  return fetchAll((a, b) => {
+  return dc('ls|' + (locIds ? locIds.join(',') : 'all'), () => fetchAll((a, b) => {
     let q = db.from('v_live_stock').select('location_id,location_type,product_id,live_qty');
     if (locIds) q = q.in('location_id', locIds);
     return q.order('location_id').order('product_id').range(a, b);
-  });
+  }));
 }
+// sales added up inside the database (one row per sales point x product), not thousands of daily rows
+const salesTotals = (since, locId) => rpcAll('sales_sum', {p_from: since, p_loc: locId || null}, 'location_id', 'product_id');
 async function salesSince(since, locId) {
   return fetchAll((a, b) => {
     let q = db.from('daily_sales').select('location_id,product_id,qty,sale_date').gte('sale_date', since);
@@ -403,8 +520,7 @@ const cover = (stock, s30) => s30 > 0 ? Math.round(stock / (s30 / WINDOW_DAYS)) 
 // =============================== DASHBOARD ===============================
 async function renderDashboard(v) {
   const since = addDays(today(), -(WINDOW_DAYS - 1));
-  const snap = await Hub.get(), stock = snap.ls, sales = await salesSince(since), hasFc = !snap.missing.includes('forecast data');
-  Hub.onChange(() => showTab('dashboard'));
+  const [stock, sales] = await Promise.all([liveStock(), salesTotals(since)]);
   const unitsByLoc = sumBy(stock, 'location_id', 'live_qty');
   const salesByLoc = sumBy(sales, 'location_id', 'qty');
   const sps = locations.filter(l => l.type === 'sales_point');
@@ -413,18 +529,18 @@ async function renderDashboard(v) {
   if (!isCentral()) {
     const loc = sps[0]; if (!loc) { v.innerHTML = '<div class="card">No location assigned.</div>'; return; }
     const units = unitsByLoc.get(loc.id) || 0, s30 = salesByLoc.get(loc.id) || 0;
-    const low = stock.filter(r => r.location_id === loc.id && Engine.locRate(snap, loc.id, r.product_id) > 0)
-      .map(r => ({name: prodName(r.product_id), live: Number(r.live_qty), c: Engine.cover(Number(r.live_qty), Engine.locRate(snap, loc.id, r.product_id))}))
-      .sort((a, b) => a.c - b.c).slice(0, 10), dem = Engine.locTotal(snap, loc.id);
+    const sByProd = sumBy(sales, 'product_id', 'qty');
+    const low = stock.filter(r => r.location_id === loc.id && (sByProd.get(r.product_id) || 0) > 0)
+      .map(r => ({name: prodName(r.product_id), live: Number(r.live_qty), c: cover(Number(r.live_qty), sByProd.get(r.product_id))}))
+      .sort((a, b) => a.c - b.c).slice(0, 10);
     v.innerHTML = `<div class="card"><h2>${esc(loc.name)}</h2><p class="sub">Sales point dashboard — your own stock and sales only.</p></div>
       <div class="grid">
         <div class="tile"><small>Live stock (units)</small><b>${fmt(units)}</b></div>
         <div class="tile"><small>Sales, last ${WINDOW_DAYS} days</small><b>${fmt(s30)}</b></div>
         <div class="tile"><small>Average daily sales</small><b>${fmt(s30 / WINDOW_DAYS)}</b></div>
-        <div class="tile"><small>Forecast demand per day</small><b>${hasFc ? fmt(dem) : '—'}</b></div>
-        <div class="tile"><small>Days of cover (forecast)</small><b>${hasFc ? (Engine.cover(units, dem) ?? '—') : '—'}</b></div>
+        <div class="tile"><small>Days of cover (overall)</small><b>${cover(units, s30) ?? '—'}</b></div>
       </div><div class="card" style="margin-top:16px"><h3>Products with the lowest days of cover</h3>
-      <div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Live Stock</th><th class="n">Days of Cover (forecast)</th></tr></thead><tbody>
+      <div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Live Stock</th><th class="n">Days of Cover</th></tr></thead><tbody>
       ${low.map(r => `<tr><td>${esc(r.name)}</td><td class="n">${fmt(r.live)}</td><td class="n">${r.c}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">No sales recorded yet.</td></tr>'}
       </tbody></table></div></div>`;
     return;
@@ -442,9 +558,9 @@ async function renderDashboard(v) {
       <div class="tile"><small>Indents awaiting receipt</small><b>${pending.count ?? 0}</b></div>
     </div>
     <div class="card" style="margin-top:16px"><h3>Sales Points — stock vs sales</h3>
-      <div class="tablewrap"><table><thead><tr><th>Sales Point</th><th class="n">Live Stock</th><th class="n">Sales (${WINDOW_DAYS}d)</th><th class="n">Avg Daily Sales (actual)</th><th class="n">Forecast Demand / Day</th><th class="n">Days of Cover (forecast)</th></tr></thead><tbody>
-      ${sps.map(l => { const u = unitsByLoc.get(l.id) || 0, s = salesByLoc.get(l.id) || 0, d = Engine.locTotal(snap, l.id);
-        return `<tr><td>${esc(l.name)}</td><td class="n">${fmt(u)}</td><td class="n">${fmt(s)}</td><td class="n">${fmt(s / WINDOW_DAYS)}</td><td class="n">${hasFc ? fmt(d) : '—'}</td><td class="n">${hasFc ? (Engine.cover(u, d) ?? '—') : '—'}</td></tr>`; }).join('')}
+      <div class="tablewrap"><table><thead><tr><th>Sales Point</th><th class="n">Live Stock</th><th class="n">Sales (${WINDOW_DAYS}d)</th><th class="n">Avg Daily Sales</th><th class="n">Days of Cover</th></tr></thead><tbody>
+      ${sps.map(l => { const u = unitsByLoc.get(l.id) || 0, s = salesByLoc.get(l.id) || 0;
+        return `<tr><td>${esc(l.name)}</td><td class="n">${fmt(u)}</td><td class="n">${fmt(s)}</td><td class="n">${fmt(s / WINDOW_DAYS)}</td><td class="n">${cover(u, s) ?? '—'}</td></tr>`; }).join('')}
       </tbody></table></div></div>
     <div class="card"><h3>Warehouses</h3>
       <div class="tablewrap"><table><thead><tr><th>Warehouse</th><th class="n">Live Stock (units)</th><th class="n">Products in stock</th></tr></thead><tbody>
@@ -470,25 +586,26 @@ async function renderStock(v) {
     const ids = merged ? whs.map(l => l.id) : [sel];
     const loc = locations.find(l => l.id === sel);
     const isSP = !merged && loc && loc.type === 'sales_point';
-    const stock = await liveStock(ids), snap = isSP ? await Hub.get() : null, hasFc = snap && !snap.missing.includes('forecast data');
+    const stock = await liveStock(ids);
+    const s30 = isSP ? sumBy(await salesTotals(addDays(today(), -(WINDOW_DAYS - 1)), sel), 'product_id', 'qty') : new Map();
     const byProd = new Map(); stock.forEach(r => { const o = byProd.get(r.product_id) || {}; o[r.location_id] = Number(r.live_qty); byProd.set(r.product_id, o); });
     const rows = products.filter(p => p.is_active).map(p => {
       const o = byProd.get(p.id) || {}; const total = ids.reduce((s, i) => s + (o[i] || 0), 0);
       return {p, o, total};
     });
     const head = merged ? whs.map(l => `<th class="n">${esc(l.name)}</th>`).join('') + '<th class="n">Total</th>'
-      : '<th class="n">Live Stock</th>' + (isSP ? '<th class="n">Forecast Demand / Day</th><th class="n">Days of Cover (forecast)</th>' : '');
+      : '<th class="n">Live Stock</th>' + (isSP ? '<th class="n">Avg Daily Sales</th><th class="n">Days of Cover</th>' : '');
     const body = rows.map(({p, o, total}) => {
-      const rate = isSP && hasFc ? Engine.locRate(snap, sel, p.id) : 0;
+      const sales = s30.get(p.id) || 0;
       const cells = merged ? whs.map(l => `<td class="n">${fmt(o[l.id] || 0)}</td>`).join('') + `<td class="n"><b>${fmt(total)}</b></td>`
-        : `<td class="n">${fmt(total)}</td>` + (isSP ? `<td class="n">${hasFc ? fmt(rate) : '—'}</td><td class="n">${hasFc ? (Engine.cover(total, rate) ?? '—') : '—'}</td>` : '');
+        : `<td class="n">${fmt(total)}</td>` + (isSP ? `<td class="n">${fmt(sales / WINDOW_DAYS)}</td><td class="n">${cover(total, sales) ?? '—'}</td>` : '');
       return `<tr><td>${esc(p.name)}</td>${cells}</tr>`;
     }).join('');
     out.innerHTML = `<div class="card"><div class="tablewrap"><table id="stTable"><thead><tr><th>Product</th>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
     applyFilter();
   };
   const applyFilter = () => { const q = norm($('#stSearch').value); document.querySelectorAll('#stTable tbody tr').forEach(tr => tr.style.display = norm(tr.cells[0].textContent).includes(q) ? '' : 'none'); };
-  $('#stLoc').onchange = load; $('#stSearch').oninput = applyFilter; Hub.onChange(() => load());
+  $('#stLoc').onchange = load; $('#stSearch').oninput = applyFilter;
   await load();
 }
 
@@ -851,9 +968,13 @@ function bulkIndent(v, sps) {
 // Supply = ceil(avg daily sales x (delivery gap + buffer) - current stock); when warehouse stock is short it is shared by sales rate.
 // ---------- Phase 3 helpers: ABC, buffer rules, seasonal events ----------
 const ABC_DAYS = 90, CLS_BADGE = {A: 'b-give', B: 'b-partial', C: 'b-dispatched', X: 'b-cancelled'};
+const RPC_CACHED = new Set(['forecast_live', 'sales_agg', 'sales_coverage', 'sales_sum']);
 async function rpcAll(fn, args, ...cols) {
-  try { return await fetchAll((a, b) => { let q = db.rpc(fn, args); cols.forEach(c => q = q.order(c)); return q.range(a, b); }); }
-  catch (e) { throw new Error(['42P01', 'PGRST205', 'PGRST202'].includes(e.code) ? 'Run uol_step4_forecasting.sql in the Supabase SQL Editor first.' : (e.message || e)); }
+  const run = async () => {
+    try { return await fetchAll((a, b) => { let q = db.rpc(fn, args); cols.forEach(c => q = q.order(c)); return q.range(a, b); }); }
+    catch (e) { throw new Error(['42P01', 'PGRST205', 'PGRST202'].includes(e.code) ? `The database function "${fn}" is missing. Run the latest SQL scripts (uol_live_forecast_engine.sql, then uol_performance.sql) in the Supabase SQL Editor.` : (e.message || e)); }
+  };
+  return RPC_CACHED.has(fn) ? dc(`${fn}|${JSON.stringify(args)}`, run) : run();
 }
 function abcCompute(qtyMap, aCut, bCut) {
   const act = products.filter(p => p.is_active), useVal = act.some(p => Number(p.mrp) > 0);
@@ -892,8 +1013,22 @@ function allocate(W, need, w) {
   return give;
 }
 async function renderPlan(v) {
-  const sps = locations.filter(l => l.type === 'sales_point'), act = products.filter(p => p.is_active), whs = locations.filter(l => l.type === 'warehouse');
-  let snap = Hub.need(await Hub.get()); await Hub.ensureLY(snap);
+  const sps = locations.filter(l => l.type === 'sales_point'), act = products.filter(p => p.is_active);
+  const winFrom = addDays(today(), -(WINDOW_DAYS - 1)), prevFrom = addDays(winFrom, -WINDOW_DAYS), prevTo = addDays(winFrom, -1);
+  const [ls, fb, curP, prevP, abcP, rulesQ, evQ] = await Promise.all([liveStock(), fcLoad(today()),
+    rpcAll('sales_agg', {p_from: winFrom, p_to: today(), p_by_location: false}, 'prod_id'), rpcAll('sales_agg', {p_from: prevFrom, p_to: prevTo, p_by_location: false}, 'prod_id'),
+    rpcAll('sales_agg', {p_from: addDays(today(), -(ABC_DAYS - 1)), p_to: today(), p_by_location: false}, 'prod_id'),
+    db.from('plan_rules').select('*'), db.from('season_events').select('*').eq('is_active', true)]);
+  if (rulesQ.error || evQ.error) throw new Error('Run uol_step4_forecasting.sql in the Supabase SQL Editor first.');
+  const fbm = new Map(fb.map(r => [r.loc_id + '|' + r.prod_id, fcRow(r)]));
+  const mapP = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)])), curM = mapP(curP), prevM = mapP(prevP);
+  const abc = abcCompute(mapP(abcP), 80, 95).map, rules = rulesQ.data, events = evQ.data, lyFactor = new Map(); let lyLoaded = false;
+  let tqRows; try { tqRows = await fetchAll((a, b) => db.from('v_in_transit').select('location_id,product_id,qty').order('location_id').order('product_id').range(a, b)); }
+  catch (e) { throw new Error(['42P01', 'PGRST205'].includes(e.code) ? 'Run uol_step2_challan_grn.sql in the Supabase SQL Editor first.' : e.message); }
+  const transit = new Map(tqRows.map(r => [r.location_id + '|' + r.product_id, Number(r.qty)]));
+  const whs = locations.filter(l => l.type === 'warehouse');
+  const stock = new Map(), wh = new Map(), whLoc = new Map();
+  ls.forEach(r => { const q = Number(r.live_qty); if (r.location_type === 'warehouse') { wh.set(r.product_id, (wh.get(r.product_id) || 0) + q); whLoc.set(r.location_id + '|' + r.product_id, q); } else stock.set(r.location_id + '|' + r.product_id, q); });
   const ind = await db.from('indents').select('id,location_id').order('indent_date', {ascending: false}).order('created_at', {ascending: false}).limit(2000);
   if (ind.error) throw ind.error;
   const latest = new Map(); ind.data.forEach(r => { if (!latest.has(r.location_id)) latest.set(r.location_id, r.id); });
@@ -902,7 +1037,6 @@ async function renderPlan(v) {
     .forEach(r => req.set(idLoc.get(r.indent_id) + '|' + r.product_id, Number(r.requested_qty)));
   v.innerHTML = `<div class="card"><h2>Distribution &amp; Forecasting</h2>
     <p class="sub">Supply for each sales point = Avg daily sales × (Delivery gap + Buffer) − (Current stock + In-transit). If the warehouse has less than the total demand, it is shared between sales points in proportion to their sales rate. Avg daily sales = last ${WINDOW_DAYS} days, ignoring days the sales point had no stock; it can be adjusted for trend and seasonal events. Delivery gap and buffer can be overridden per product, category, supplier or ABC class in <b>Planning Rules</b>.</p>
-    <div id="plFcs"></div>
     <div class="row"><div><label>View</label><select id="plView"><option value="">All sales points (summary)</option>${sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
     <div><label>Source warehouse</label><select id="plSrc"><option value="">All warehouses (merged)</option>${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
     <div><label>Delivery gap (days): <b id="gapV">3</b></label><input type="range" id="plGap" min="1" max="30" value="3"></div>
@@ -910,19 +1044,27 @@ async function renderPlan(v) {
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plAuto" checked> Auto buffer = <input type="number" id="plPct" value="25" min="0" max="100" style="min-width:0;width:64px;padding:5px 6px">% of gap (min 1 day)</label>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plCap"> Do not supply more than indent qty</label>
     <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plHide" checked> Hide products with no supply</label>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plSo" checked> Ignore stock-out days</label>
+    <div><label>Sales trend</label><select id="plTr"><option value="0">Off</option><option value="1">Moderate (±25%)</option><option value="2">Full (±50%)</option></select></div>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plSea" checked> Apply seasonal events</label>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="plLy"> Auto seasonality (last year)</label>
     <div><label>ABC class</label><select id="plAbc"><option value="">All</option><option>A</option><option>B</option><option>C</option><option value="X">X (no sales)</option></select></div>
     <button class="btn alt" id="plExp">Export Plan (Excel)</button><button class="btn" id="plMk">Create Challan(s)</button></div></div><div id="plOut"></div>`;
+  persistUi('plan', ['plView', 'plSrc', 'plGap', 'plBuf', 'plCap', 'plHide', 'plAuto', 'plPct', 'plSo', 'plTr', 'plSea', 'plAbc']);
   let cur = null;
   const compute = () => {
-    const G = +$('#plGap').value, cap = $('#plCap').checked, auto = $('#plAuto').checked, pct = +$('#plPct').value || 0, Bsl = +$('#plBuf').value, src = $('#plSrc').value;
+    const G = +$('#plGap').value, cap = $('#plCap').checked, so = $('#plSo').checked, trm = +$('#plTr').value, sea = $('#plSea').checked, ly = $('#plLy').checked,
+      auto = $('#plAuto').checked, pct = +$('#plPct').value || 0, Bsl = +$('#plBuf').value, src = $('#plSrc').value;
     return act.map(p => {
-      const cls = Engine.cls(snap, p.id), rl = ruleFor(snap.rules, p, cls);
+      const cls = (abc.get(p.id) || {}).cls || 'X', rl = ruleFor(rules, p, cls);
       const gap = rl.gap ?? G, buf = rl.buf ?? (auto ? Math.max(1, Math.ceil(gap * pct / 100)) : Bsl), H = gap + buf;
-      const factor = Engine.factor(snap, p, H);
-      const rows = sps.map(sp => { const k = sp.id + '|' + p.id, st = snap.stockLoc.get(k) || 0, rq = req.get(k) || 0, tr = snap.transitLoc.get(k) || 0;
-        const avg = Engine.locRate(snap, sp.id, p.id) * factor;
-        let need = Math.max(0, Math.ceil(avg * H - st - tr - 1e-9)); if (cap) need = Math.min(need, Math.ceil(rq)); return {sp, avg, so: Engine.soDays(snap, sp.id, p.id), st, tr, rq, need}; });
-      const W = Math.max(0, (src ? snap.whLoc.get(src + '|' + p.id) : snap.whProd.get(p.id)) || 0), give = allocate(W, rows.map(r => r.need), rows.map(r => r.avg));
+      let tf = 1; if (trm) { const c = curM.get(p.id) || 0, pv = prevM.get(p.id) || 0; if (pv >= 10) { const lim = trm === 1 ? 0.25 : 0.5; tf = Math.min(1 + lim, Math.max(1 - lim, c / pv)); } }
+      let sf = 1; if (sea) sf *= eventFactor(events, p, today(), H); if (ly) sf *= lyFactor.get(p.id) || 1;
+      const factor = Math.min(4, Math.max(0.3, tf * sf));
+      const rows = sps.map(sp => { const k = sp.id + '|' + p.id, b = fbm.get(k) || FC_ZERO, st = stock.get(k) || 0, rq = req.get(k) || 0, tr = transit.get(k) || 0;
+        const base = fcBase(b, so), avg = base * factor;
+        let need = Math.max(0, Math.ceil(avg * H - st - tr - 1e-9)); if (cap) need = Math.min(need, Math.ceil(rq)); return {sp, avg, so: b.so, st, tr, rq, need}; });
+      const W = Math.max(0, (src ? whLoc.get(src + '|' + p.id) : wh.get(p.id)) || 0), give = allocate(W, rows.map(r => r.need), rows.map(r => r.avg));
       rows.forEach((r, i) => r.give = give[i]);
       return {p, cls, gap, buf, factor, W, rows, need: rows.reduce((a, r) => a + r.need, 0), give: give.reduce((a, b) => a + b, 0)};
     });
@@ -949,7 +1091,18 @@ async function renderPlan(v) {
       </tbody></table></div></div>`;
     }
   };
-  ['plView', 'plSrc', 'plGap', 'plBuf', 'plCap', 'plHide', 'plAuto', 'plPct', 'plAbc'].forEach(id => $('#' + id).oninput = draw);
+  ['plView', 'plSrc', 'plGap', 'plBuf', 'plCap', 'plHide', 'plAuto', 'plPct', 'plSo', 'plTr', 'plSea', 'plAbc'].forEach(id => $('#' + id).oninput = draw);
+  $('#plLy').onchange = async () => {
+    if ($('#plLy').checked && !lyLoaded) {
+      try {
+        const a0 = addDays(today(), -365), mk = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)]));
+        const nx = mk(await rpcAll('sales_agg', {p_from: a0, p_to: addDays(a0, 29), p_by_location: false}, 'prod_id')), pv = mk(await rpcAll('sales_agg', {p_from: addDays(a0, -30), p_to: addDays(a0, -1), p_by_location: false}, 'prod_id'));
+        act.forEach(p => { const q = pv.get(p.id) || 0; if (q >= 10) lyFactor.set(p.id, Math.min(3, Math.max(0.5, (nx.get(p.id) || 0) / q))); });
+        lyLoaded = true; toast(lyFactor.size ? `Last-year pattern found for ${lyFactor.size} products.` : 'No sales history older than one year yet, so nothing is adjusted.', lyFactor.size ? 'ok' : 'err');
+      } catch (e) { toast(e.message, 'err'); $('#plLy').checked = false; }
+    }
+    draw();
+  };
   $('#plMk').onclick = () => {
     const src = $('#plSrc').value, loc = $('#plView').value;
     if (!src) return toast('Select one source warehouse first (not "All warehouses").', 'err');
@@ -977,7 +1130,6 @@ async function renderPlan(v) {
     sps.forEach((l, i) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product Code', 'Product Name', 'Supply Qty']].concat(cur.filter(x => x.rows[i].give > 0).map(x => [x.p.sku || '', x.p.name, x.rows[i].give]))), sheetName(l.name)));
     XLSX.writeFile(wb, `Distribution_Plan_${today()}.xlsx`);
   };
-  $('#plFcs').innerHTML = fcsPanel(); fcsBind(draw); Hub.onChange(s => { snap = s; draw(); });
   draw();
 }
 
@@ -1469,239 +1621,12 @@ async function renderInvMove(v) {
   await load();
 }
 
-// ============================ FORECAST ENGINE + LIVE DATA HUB ============================
-// One data snapshot (Hub), one set of settings (FCS) and one calculation (Engine) feed the Dashboard, Live Stock, Distribution & Forecasting,
-// Reorder Planning, Import Planning and the Data Health Check, so the same product always gets the same demand figure in every module.
-const FCS_KEY = 'uol_forecast_settings_v2';
-const FCS_DEFAULT = {resp: 'balanced', so: true, tr: '0', sea: true, ly: false, A: 10, B: 7, C: 5, clr: 7};
-const FCS_RESP = {
-  stable: {label: 'Stable — 30-day average', w: {30: 1}},
-  balanced: {label: 'Balanced — recent days count more', w: {7: 0.5, 14: 0.3, 30: 0.2}},
-  responsive: {label: 'Responsive — follows the last week', w: {7: 0.7, 14: 0.2, 30: 0.1}}
-};
-const FCS = Object.assign({}, FCS_DEFAULT, (() => { try { return JSON.parse(localStorage.getItem(FCS_KEY) || '{}'); } catch (e) { return {}; } })());
-const fcsSave = () => { try { localStorage.setItem(FCS_KEY, JSON.stringify(FCS)); } catch (e) { /* storage unavailable */ } };
-const ENG_WINS = [{d: 7, min: 3}, {d: 14, min: 5}, {d: 30, min: 7}];   // window length and the minimum number of selling days used to divide by
-
-// ---- date helpers (also used by order-window planning) ----
+// ============================ IMPORT PLANNING ============================
+// For imported (mostly organic, seasonal) products: when to place the next order so that the warehouse never runs out,
+// respecting (a) supplier lead time + customs/clearance time, (b) the months in which the product can be ordered at all,
+// (c) safety days, seasonal demand events and shelf life.
 const MON_LBL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const monthOf = d => +d.slice(5, 7);
-const okDate = (d, M) => !M || M.includes(monthOf(d));
-const diffDays = (a, b) => Math.round((Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10)) - Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10))) / 86400000);
-const prevOk = (d, M) => { for (let i = 0; i <= 366; i++) { const x = addDays(d, -i); if (okDate(x, M)) return x; } return null; };   // latest allowed day on or before d
-const nextOk = (d, M) => { for (let i = 0; i <= 366; i++) { const x = addDays(d, i); if (okDate(x, M)) return x; } return null; };    // first allowed day on or after d
-const blockEnd = (d, M) => { let x = d; for (let i = 0; i < 366 && okDate(addDays(x, 1), M); i++) x = addDays(x, 1); return x; };         // last day of the open window containing d
-const nextBlockStart = (d, M) => nextOk(addDays(blockEnd(d, M), 1), M);                                                                   // first day of the following window
-
-const Engine = {
-  // Daily demand for every product x location, blended from the last 7 / 14 / 30 days. Days without stock are ignored (when enabled),
-  // so a stock-out never looks like low demand, and a recent drop or jump in sales is followed immediately.
-  prepare(snap) {
-    const sig = FCS.resp + '|' + FCS.so;
-    if (snap.rateSig === sig) return snap;
-    const w = (FCS_RESP[FCS.resp] || FCS_RESP.balanced).w, rate = new Map(), prod = new Map(), loc = new Map();
-    snap.keys.forEach(k => {
-      let num = 0, den = 0;
-      ENG_WINS.forEach(({d, min}) => {
-        const wt = w[d]; if (!wt) return;
-        const b = snap.fb[d].get(k); let v = 0, ok = true;
-        if (b) {
-          if (FCS.so) { if (b.avail > 0) v = b.sold / Math.max(b.avail, Math.min(min, b.tracked)); else ok = !(b.tracked > 0); }   // out of stock all window: no usable signal
-          else v = b.sold / d;
-        }
-        if (ok) { num += v * wt; den += wt; }
-      });
-      const r = den ? num / den : 0, i = k.indexOf('|'), l = k.slice(0, i), p = k.slice(i + 1);
-      rate.set(k, r); prod.set(p, (prod.get(p) || 0) + r); loc.set(l, (loc.get(l) || 0) + r);
-    });
-    Object.assign(snap, {rate, rateProd: prod, rateLoc: loc, rateSig: sig});
-    return snap;
-  },
-  locRate(snap, locId, pid) { return this.prepare(snap).rate.get(locId + '|' + pid) || 0; },
-  prodRate(snap, pid) { return this.prepare(snap).rateProd.get(pid) || 0; },
-  locTotal(snap, locId) { return this.prepare(snap).rateLoc.get(locId) || 0; },
-  soDays(snap, locId, pid) { const b = snap.fb[30].get(locId + '|' + pid); return b ? Math.max(0, b.tracked - b.avail) : 0; },
-  cls(snap, pid) { return (snap.abc.get(pid) || {}).cls || 'X'; },
-  cover: (stock, rate) => rate > 0 ? Math.round(stock / rate) : null,
-  // Trend + seasonal-event + last-year multiplier for a planning horizon of H days
-  factor(snap, p, H) {
-    let tf = 1; const trm = +FCS.tr;
-    if (trm) { const c = snap.curM.get(p.id) || 0, pv = snap.prevM.get(p.id) || 0; if (pv >= 10) { const lim = trm === 1 ? 0.25 : 0.5; tf = Math.min(1 + lim, Math.max(1 - lim, c / pv)); } }
-    let sf = 1; if (FCS.sea) sf *= eventFactor(snap.events, p, snap.td, Math.max(1, Math.min(730, Math.round(H))));
-    if (FCS.ly) sf *= (snap.ly && snap.ly.get(p.id)) || 1;
-    return Math.min(4, Math.max(0.3, tf * sf));
-  },
-  // Purchase planning for one product (imported or local): when to order, how much, and whether a stock-out is coming.
-  procure(p, snap) {
-    this.prepare(snap);
-    const td = snap.td, cls = this.cls(snap, p.id), sup = p.supplier ? snap.supByName.get(norm(p.supplier)) || null : null;
-    const lead = p.lead_time_days ?? sup?.lead_time_days ?? 14, clr = p.clearance_days ?? (p.is_import === false ? 0 : FCS.clr), L = lead + clr, review = sup?.review_days ?? 7;
-    const safety = ({A: FCS.A, B: FCS.B, C: FCS.C})[cls] ?? 0, M = p.order_months && p.order_months.length && p.order_months.length < 12 ? p.order_months : null;
-    const wh = Math.max(0, snap.whProd.get(p.id) || 0), sp = Math.max(0, snap.spProd.get(p.id) || 0), tr = snap.transitProd.get(p.id) || 0, oo = snap.onOrder.get(p.id) || 0, pos = wh + sp + tr + oo;
-    const out = {p, cls, sup, lead, clr, L, review, safety, M, pos, wh, sp, tr, oo, D: 0, cover: Infinity, stockout: null, orderBy: null, arrival: null, gap: 0, qty: 0, lasts: 0, status: 'No demand', notes: []};
-    const base = snap.rateProd.get(p.id) || 0, B = L + safety + (M ? 0 : review);   // days to cover: delivery + safety (+ one review cycle when ordering is possible any time)
-    let D = base * this.factor(snap, p, B);
-    if (!(D > 0)) return out;
-    const cover = pos / D, stockout = addDays(td, Math.floor(cover)), latest = addDays(stockout, -B);
-    let o;
-    if (latest >= td) { o = M ? prevOk(latest, M) : latest; if (o < td) o = null; }
-    if (o == null) o = okDate(td, M) ? td : nextOk(td, M);          // no allowed day left before the safe date: order at the first chance
-    const arrival = addDays(o, L), gap = Math.max(0, diffDays(stockout, arrival));
-    const T = M ? addDays(nextBlockStart(o, M), L + safety) : addDays(td, B);   // stock must last until the shipment of the next window / cycle has arrived
-    D = base * this.factor(snap, p, diffDays(td, T));
-    const posA = Math.max(0, pos - D * diffDays(td, arrival));
-    let qty = Math.max(0, Math.ceil(D * Math.max(0, diffDays(arrival, T)) - posA - 1e-9));
-    if (qty > 0) { if (Number(p.moq) > 0) qty = Math.max(qty, Number(p.moq)); if (Number(p.pack_size) > 0) qty = Math.ceil(qty / Number(p.pack_size)) * Number(p.pack_size); }
-    Object.assign(out, {D, cover: pos / D, stockout, orderBy: o, arrival, gap, qty, lasts: qty > 0 ? qty / D : 0, coverUntil: T});
-    out.status = gap > 0 ? 'Stock-out risk' : qty <= 0 ? 'Covered' : o <= addDays(td, 7) ? 'Order now' : o <= addDays(td, 30) ? 'Plan this month' : 'Upcoming';
-    if (gap > 0) out.notes.push(`Expected stock-out of about ${gap} day${gap === 1 ? '' : 's'} before the shipment can arrive.`);
-    if (M && qty > 0) out.notes.push(okDate(td, M) ? `Order window is open until ${blockEnd(td, M)}.` : `Order window is closed; it opens on ${nextOk(td, M)}.`);
-    if (qty > 0 && Number(p.shelf_life_days) > 0 && out.lasts > Number(p.shelf_life_days)) out.notes.push(`This order lasts ${Math.round(out.lasts)} days, longer than the ${p.shelf_life_days}-day shelf life. Consider splitting the shipment.`);
-    return out;
-  }
-};
-
-// ============================ LIVE DATA HUB ============================
-const LIVE_TABS = ['dashboard', 'stock', 'plan', 'reorder', 'import'];
-const Hub = {
-  snap: null, ts: 0, stale: false, inflight: null, listeners: [], timer: null, pending: false,
-  async get(maxAge = 15000) { return this.snap && !this.stale && Date.now() - this.ts < maxAge ? this.snap : this.load(); },
-  invalidate() { this.stale = true; },
-  onChange(fn) { this.listeners.push(fn); },
-  load() {
-    if (!this.inflight) this.inflight = this._load().then(s => { this.snap = s; this.ts = Date.now(); this.stale = false; this.paint(); return s; })
-      .catch(e => { this.paint(e); throw e; }).finally(() => { this.inflight = null; });
-    return this.inflight;
-  },
-  need(snap) {   // central planning modules cannot work without these parts of the snapshot
-    if (snap.missing.length) throw new Error(`Some data could not be read (${snap.missing.join(', ')}). Run uol_step2_challan_grn.sql, uol_step4_forecasting.sql and uol_step5_purchasing.sql in the Supabase SQL Editor first.`);
-    return snap;
-  },
-  async _load() {
-    const td = today(), from = d => addDays(td, -(d - 1)), missing = [];
-    const opt = async (name, fn, dflt = []) => { try { return await fn(); } catch (e) { missing.push(name); return dflt; } };
-    const fbq = d => opt('forecast data', () => rpcAll('forecast_base', {p_from: from(d), p_to: td}, 'loc_id', 'prod_id'));
-    const sa = (a, b, name) => opt(name, () => rpcAll('sales_agg', {p_from: a, p_to: b, p_by_location: false}, 'prod_id'));
-    const tbl = async (name, t) => { const r = await db.from(t).select('*').limit(5000); if (r.error) { missing.push(name); return []; } return r.data; };
-    const [ls, f7, f14, f30, cur, prev, abcR, events, rules, sups, tr, oo, dr, lc] = await Promise.all([
-      liveStock(), fbq(7), fbq(14), fbq(30), sa(from(30), td, 'sales summary'), sa(addDays(from(30), -30), addDays(from(30), -1), 'sales summary'), sa(addDays(td, -(ABC_DAYS - 1)), td, 'sales summary'),
-      opt('seasonal events', async () => { const r = await db.from('season_events').select('*').eq('is_active', true); if (r.error) throw r.error; return r.data; }),
-      opt('planning rules', async () => { const r = await db.from('plan_rules').select('*'); if (r.error) throw r.error; return r.data; }),
-      tbl('suppliers', 'suppliers'),
-      opt('in-transit', () => fetchAll((a, b) => db.from('v_in_transit').select('location_id,product_id,qty').order('location_id').order('product_id').range(a, b))),
-      opt('on-order', () => fetchAll((a, b) => db.from('v_on_order').select('product_id,qty').order('product_id').range(a, b))),
-      opt('draft PO', () => fetchAll((a, b) => db.from('v_draft_po').select('product_id,qty').order('product_id').range(a, b))),
-      opt('last cost', () => fetchAll((a, b) => db.from('v_last_cost').select('product_id,unit_cost').order('product_id').range(a, b)))]);
-    const win = rows => new Map(rows.map(r => [r.loc_id + '|' + r.prod_id, {sold: Number(r.sold), tracked: r.tracked_days, avail: r.avail_days}]));
-    const fb = {7: win(f7), 14: win(f14), 30: win(f30)}, keys = new Set([...fb[7].keys(), ...fb[14].keys(), ...fb[30].keys()]);
-    const mapP = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)])), add = (m, k, q) => m.set(k, (m.get(k) || 0) + q);
-    const stockLoc = new Map(), whLoc = new Map(), whProd = new Map(), spProd = new Map(), transitLoc = new Map(), transitProd = new Map(), onOrder = new Map(), draft = new Map();
-    ls.forEach(r => { const q = Number(r.live_qty), k = r.location_id + '|' + r.product_id; if (r.location_type === 'warehouse') { whLoc.set(k, q); add(whProd, r.product_id, q); } else { stockLoc.set(k, q); add(spProd, r.product_id, q); } });
-    tr.forEach(r => { add(transitLoc, r.location_id + '|' + r.product_id, Number(r.qty)); add(transitProd, r.product_id, Number(r.qty)); });
-    oo.forEach(r => add(onOrder, r.product_id, Number(r.qty))); dr.forEach(r => add(draft, r.product_id, Number(r.qty)));
-    const sum = (rows, k) => rows.reduce((a, r) => a + Number(r[k] || 0), 0);
-    return {at: new Date(), td, ls, fb, keys, missing: [...new Set(missing)], curM: mapP(cur), prevM: mapP(prev), abc: abcCompute(mapP(abcR), 80, 95).map, events, rules, sups, supByName: new Map(sups.map(s => [norm(s.name), s])),
-      stockLoc, whLoc, whProd, spProd, transitLoc, transitProd, onOrder, draft, lastCost: new Map(lc.map(r => [r.product_id, Number(r.unit_cost)])), ly: null, rateSig: null,
-      sig: [ls.length, sum(ls, 'live_qty'), sum(f7, 'sold'), sum(f30, 'sold'), sum(tr, 'qty'), sum(oo, 'qty'), sum(dr, 'qty'), lc.length, events.length].join('|')};
-  },
-  async ensureLY(snap) {   // last-year seasonality: same 30 days one year ago vs the 30 days before them
-    if (!FCS.ly || snap.ly) return snap;
-    const a0 = addDays(snap.td, -365), mk = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)])), ly = new Map();
-    const nx = mk(await rpcAll('sales_agg', {p_from: a0, p_to: addDays(a0, 29), p_by_location: false}, 'prod_id')), pv = mk(await rpcAll('sales_agg', {p_from: addDays(a0, -30), p_to: addDays(a0, -1), p_by_location: false}, 'prod_id'));
-    products.filter(p => p.is_active).forEach(p => { const q = pv.get(p.id) || 0; if (q >= 10) ly.set(p.id, Math.min(3, Math.max(0.5, (nx.get(p.id) || 0) / q))); });
-    snap.ly = ly; return snap;
-  },
-  busy() { const a = document.activeElement; return !!document.querySelector('#ov') || (a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && ['text', 'number', 'search'].includes(a.type)))); },
-  notify(force) {
-    if (!force && this.busy()) { this.pending = true; return; }
-    this.pending = false; this.listeners.slice().forEach(fn => { try { fn(this.snap); } catch (e) { console.error(e); } });
-  },
-  async tick() {
-    if (!db || document.hidden) return;
-    if (this.pending && !this.busy()) this.notify();
-    if (!LIVE_TABS.includes(currentTab)) return;
-    const before = this.snap && this.snap.sig;
-    try { this.invalidate(); const s = await this.load(); if (before && s.sig !== before) this.notify(); } catch (e) { /* chip already shows the problem */ }
-  },
-  async refreshNow() { this.invalidate(); try { await this.load(); this.notify(true); toast('Data refreshed.'); } catch (e) { toast(e.message || String(e), 'err'); } },
-  paint(err) {
-    const c = document.getElementById('liveChip'); if (!c) return;
-    if (err) { c.textContent = '● Live data: retrying'; c.className = 'chip live off'; return; }
-    c.textContent = '● Live · updated ' + new Date().toLocaleTimeString('en-GB', {timeZone: TZ}); c.className = 'chip live';
-  },
-  start() { if (this.timer) return; this.timer = setInterval(() => this.tick(), 60000); const c = document.getElementById('liveChip'); if (c) c.onclick = () => this.refreshNow(); }
-};
-
-// ============================ SHARED FORECAST SETTINGS PANEL ============================
-function fcsSummary() {
-  return `${(FCS_RESP[FCS.resp] || FCS_RESP.balanced).label.split(' — ')[0]} · stock-out days ${FCS.so ? 'ignored' : 'counted'} · seasonal events ${FCS.sea ? 'on' : 'off'}${+FCS.tr ? ' · trend on' : ''}${FCS.ly ? ' · last-year pattern on' : ''}`;
-}
-function fcsPanel(opts = {}) {
-  const num = (id, label, val) => `<div><label>${label}</label><input type="number" id="${id}" value="${val}" min="0" style="min-width:0;width:84px"></div>`;
-  return `<details class="card" id="fcsBox" style="padding:12px 18px;border-left:4px solid var(--teal)"><summary style="cursor:pointer;font-weight:700;color:var(--deep)">Forecast settings — shared by every module
-      <span class="muted" id="fcsSum" style="font-weight:600;margin-left:8px">${esc(fcsSummary())}</span></summary>
-    <div class="row" style="margin-top:12px"><div><label>Forecast responsiveness</label><select id="fcResp">${Object.entries(FCS_RESP).map(([k, r]) => `<option value="${k}">${r.label}</option>`).join('')}</select></div>
-      <div><label>Sales trend</label><select id="fcTr"><option value="0">Off</option><option value="1">Moderate (±25%)</option><option value="2">Full (±50%)</option></select></div>
-      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="fcSo"> Ignore stock-out days</label>
-      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="fcSea"> Apply seasonal events</label>
-      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="fcLy"> Auto seasonality (last year)</label>
-      ${opts.proc ? num('fcA', 'Safety days — class A', FCS.A) + num('fcB', 'Class B', FCS.B) + num('fcC', 'Class C', FCS.C) + num('fcClr', 'Import clearance &amp; transport days', FCS.clr) : ''}</div>
-    <p class="sub" style="margin:10px 0 0">Daily demand is blended from the last 7, 14 and 30 days of real sales, so it falls when sales drop and rises again as soon as sales pick up. Days with no stock are ignored so a stock-out is never mistaken for low demand.
-      The same settings and the same data snapshot are used by the Dashboard, Live Stock, Distribution, Reorder Planning and Import Planning. The settings are saved in this browser.</p></details>`;
-}
-function fcsBind(onChange) {
-  const set = () => { $('#fcResp').value = FCS.resp; $('#fcTr').value = FCS.tr; $('#fcSo').checked = !!FCS.so; $('#fcSea').checked = !!FCS.sea; $('#fcLy').checked = !!FCS.ly; };
-  set();
-  const read = async () => {
-    Object.assign(FCS, {resp: $('#fcResp').value, tr: $('#fcTr').value, so: $('#fcSo').checked, sea: $('#fcSea').checked, ly: $('#fcLy').checked});
-    if ($('#fcA')) Object.assign(FCS, {A: Math.max(0, +$('#fcA').value || 0), B: Math.max(0, +$('#fcB').value || 0), C: Math.max(0, +$('#fcC').value || 0), clr: Math.max(0, +$('#fcClr').value || 0)});
-    fcsSave(); $('#fcsSum').textContent = fcsSummary();
-    if (FCS.ly) { try { await Hub.ensureLY(Hub.snap); if (!Hub.snap.ly.size) toast('No sales history older than one year yet, so the last-year pattern changes nothing.', 'err'); } catch (e) { FCS.ly = false; $('#fcLy').checked = false; fcsSave(); toast(e.message || String(e), 'err'); } }
-    onChange();
-  };
-  ['fcResp', 'fcTr', 'fcSo', 'fcSea', 'fcLy', 'fcA', 'fcB', 'fcC', 'fcClr'].forEach(id => { const el = $('#' + id); if (el) el.oninput = read; });
-}
-
-// ============================ DATA HEALTH CHECK ============================
-async function renderHealth(v) {
-  const snap = await Hub.get(0), td = snap.td, sps = locations.filter(l => l.type === 'sales_point'), pn = id => prodName(id);
-  const rate = pid => Engine.prodRate(snap, pid), act = products.filter(p => p.is_active), actIds = new Set(act.map(p => p.id));
-  const [last, ch] = await Promise.all([
-    Promise.all(sps.map(async l => { const r = await db.from('daily_sales').select('sale_date').eq('location_id', l.id).order('sale_date', {ascending: false}).limit(1); return {l, d: r.data && r.data[0] ? r.data[0].sale_date : null}; })),
-    db.from('challans').select('challan_no,challan_date,to_location_id,status').eq('status', 'dispatched')]);
-  const checks = [], add = (sev, title, why, items) => checks.push({sev: items.length ? sev : 'ok', title, why, items});
-  add('err', 'Sales entry is up to date at every sales point', 'If a sales point has not entered sales, its demand looks lower than it is and the forecast under-orders.',
-    last.filter(x => !x.d || diffDays(x.d, td) >= 2).map(x => `${x.l.name}: ${x.d ? `last sale entry ${x.d} (${diffDays(x.d, td)} days ago)` : 'no sales entered yet'}`));
-  add('err', 'No negative stock balances', 'A negative balance means a sale, transfer or challan was entered without enough stock. Correct the entry or add the missing receipt.',
-    snap.ls.filter(r => Number(r.live_qty) < 0).map(r => `${pn(r.product_id)} @ ${locName(r.location_id)}: ${Number(r.live_qty)}`));
-  add('warn', 'Products selling right now are in stock somewhere', 'Demand exists but the whole network has no stock.',
-    act.filter(p => rate(p.id) > 0 && (snap.whProd.get(p.id) || 0) + (snap.spProd.get(p.id) || 0) <= 0).map(p => `${p.name}: ${rate(p.id).toFixed(1)} units/day, stock 0${(snap.transitProd.get(p.id) || 0) + (snap.onOrder.get(p.id) || 0) > 0 ? ' (stock is on the way)' : ''}`));
-  add('warn', 'Products with demand have a supplier on the product', 'Without a supplier the planner cannot create a purchase order.',
-    act.filter(p => rate(p.id) > 0 && !p.supplier).map(p => p.name));
-  add('warn', 'Product suppliers exist in the Suppliers list', 'The supplier name on the product must match a supplier record to get its lead time and review days.',
-    act.filter(p => p.supplier && !snap.supByName.has(norm(p.supplier))).map(p => `${p.name}: "${p.supplier}"`));
-  add('warn', 'Imported products have order months set', 'Without order months the planner assumes the product can be ordered in any month of the year.',
-    act.filter(p => p.is_import !== false && rate(p.id) > 0 && !(p.order_months && p.order_months.length && p.order_months.length < 12)).map(p => p.name));
-  add('warn', 'Challans are not stuck in transit', 'Stock on a challan counts as in-transit until the sales point receives it. Old challans hide stock and distort the forecast.',
-    (ch.data || []).filter(c => diffDays(c.challan_date, td) > 5).map(c => `${c.challan_no} to ${locName(c.to_location_id)} dispatched ${c.challan_date} (${diffDays(c.challan_date, td)} days ago)`));
-  add('warn', 'Inactive products have no stock', 'Stock of inactive products is invisible to the planner.',
-    snap.ls.filter(r => !actIds.has(r.product_id) && Number(r.live_qty) > 0).map(r => `${pn(r.product_id)} @ ${locName(r.location_id)}: ${Number(r.live_qty)}`));
-  const dead = act.filter(p => rate(p.id) <= 0 && (snap.spProd.get(p.id) || 0) + (snap.whProd.get(p.id) || 0) > 0);
-  add('info', 'Stock without any recent sales', 'No sales in the last 30 days, so the forecast is zero for these products.', dead.slice(0, 200).map(p => `${p.name}: ${(snap.whProd.get(p.id) || 0) + (snap.spProd.get(p.id) || 0)} units`));
-  if (snap.missing.length) checks.unshift({sev: 'err', title: 'All data sources are readable', why: 'The forecast is incomplete while a source is missing. Run the SQL steps in the Supabase SQL Editor.', items: snap.missing});
-  const cnt = s => checks.filter(c => c.sev === s).length, B = {ok: 'b-received', warn: 'b-partial', err: 'b-do_not_give', info: 'b-dispatched'}, L = {ok: 'OK', warn: 'Check', err: 'Fix', info: 'Info'};
-  v.innerHTML = `<div class="card"><h2>Data Health Check</h2><p class="sub">Checks that the data feeding the forecast is complete and consistent across Daily Sales, Stock, Challans, Purchase Orders and Master Data. Fix the red items first: they directly change the forecast.</p>
-    <div class="row"><button class="btn" id="hcRun">Run check again</button><span class="muted">Data snapshot: ${snap.at.toLocaleTimeString('en-GB', {timeZone: TZ})} · ${snap.keys.size} product-location demand rows · forecast mode: ${esc(fcsSummary())}</span></div></div>
-    <div class="grid" style="margin-bottom:14px"><div class="tile"><small>Passed</small><b>${cnt('ok')}</b></div><div class="tile"><small>Need fixing</small><b>${cnt('err')}</b></div><div class="tile"><small>To review</small><b>${cnt('warn')}</b></div><div class="tile"><small>Information</small><b>${cnt('info')}</b></div></div>
-    ${checks.map(c => `<div class="card" style="padding:14px 18px"><div class="row" style="justify-content:space-between"><b>${esc(c.title)}</b><span class="badge ${B[c.sev]}">${L[c.sev]}${c.items.length ? ` · ${c.items.length}` : ''}</span></div>
-      <div class="muted" style="font-size:12.5px;margin-top:2px">${esc(c.why)}</div>${c.items.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600;color:var(--green)">Show items</summary><div style="margin-top:6px;font-size:13px">${c.items.slice(0, 60).map(esc).join('<br>')}${c.items.length > 60 ? `<br><span class="muted">…and ${c.items.length - 60} more</span>` : ''}</div></details>` : ''}</div>`).join('')}`;
-  $('#hcRun').onclick = () => showTab('health');
-}
-
-// ============================ PURCHASE PLANNING (Reorder Planning + Import Planning) ============================
-// Both screens run the same engine (Engine.procure) on the same live snapshot: Reorder Planning covers every active product (imported and local),
-// Import Planning shows only imported products and adds the order-window calendar and the import settings.
-const procS = {all: {view: 'plan', p: {sup: '', abc: '', only: true, q: '', type: ''}}, import: {view: 'plan', p: {sup: '', abc: '', only: true, q: '', type: ''}}};
+const impS = {view: 'plan', p: {A: 14, B: 10, C: 7, clr: 7, tr: '0', so: true, sea: true, sup: '', abc: '', only: true, q: ''}};
 
 function parseMonths(txt) {   // "Oct-Feb", "3,4,5", "All" -> sorted month numbers, or null for every month
   const s = String(txt ?? '').trim().toLowerCase();
@@ -1732,60 +1657,121 @@ function fmtMonths(a) {
   }
   return runs.join(', ');
 }
+const monthOf = d => +d.slice(5, 7);
+const okDate = (d, M) => !M || M.includes(monthOf(d));
+const diffDays = (a, b) => Math.round((Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10)) - Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10))) / 86400000);
+const prevOk = (d, M) => { for (let i = 0; i <= 366; i++) { const x = addDays(d, -i); if (okDate(x, M)) return x; } return null; };   // latest allowed day on or before d
+const nextOk = (d, M) => { for (let i = 0; i <= 366; i++) { const x = addDays(d, i); if (okDate(x, M)) return x; } return null; };    // first allowed day on or after d
+const blockEnd = (d, M) => { let x = d; for (let i = 0; i < 366 && okDate(addDays(x, 1), M); i++) x = addDays(x, 1); return x; };         // last day of the open window that contains d
+const nextBlockStart = (d, M) => nextOk(addDays(blockEnd(d, M), 1), M);                                                                   // first day of the following window
 
-async function renderProcure(v, scope) {
+// Plans one product. ctx = {today, P (screen settings), cls, sup, base (daily demand before factors), trend, events, wh, sp, tr, oo}
+function impPlanRow(p, ctx) {
+  const {today: td, P, cls, sup, events} = ctx;
+  const lead = p.lead_time_days ?? sup?.lead_time_days ?? 14, clr = p.clearance_days ?? P.clr, L = lead + clr, review = sup?.review_days ?? 7;
+  const safety = ({A: P.A, B: P.B, C: P.C, X: 0})[cls] ?? 0, M = p.order_months && p.order_months.length && p.order_months.length < 12 ? p.order_months : null;
+  const pos = ctx.wh + ctx.sp + ctx.tr + ctx.oo, clamp = f => Math.min(4, Math.max(0.3, f));
+  const evF = H => P.sea ? eventFactor(events, p, td, Math.max(1, Math.min(730, Math.round(H)))) : 1;
+  const out = {p, cls, sup, lead, clr, L, review, safety, M, pos, wh: ctx.wh, sp: ctx.sp, tr: ctx.tr, oo: ctx.oo, D: 0, cover: Infinity, stockout: null, orderBy: null, arrival: null, gap: 0, qty: 0, lasts: 0, status: 'No demand', notes: []};
+  const B = L + safety + (M ? 0 : review);   // days that must be covered: delivery time + safety (+ one review cycle when ordering is possible any time)
+  let D = ctx.base * ctx.trend * clamp(evF(B));
+  if (!(D > 0)) return out;
+  const onhand = ctx.wh + ctx.sp + ctx.tr;   // stock that exists (open POs only count from the day they arrive)
+  const arr = (ctx.arr || []).map(a => ({po: a.po, qty: a.qty, late: !!a.date && a.date < td, date: a.date ? (a.date < td ? addDays(td, 7) : a.date) : addDays(a.base || td, L)}));
+  const sim = projectStock(onhand, D, arr, td), stockout = sim.runOut, cover = diffDays(td, stockout), latest = addDays(stockout, -B);
+  let o;
+  if (latest >= td) { o = M ? prevOk(latest, M) : latest; if (o < td) o = null; }
+  if (o == null) o = okDate(td, M) ? td : nextOk(td, M);          // no allowed day left before the safe date: order at the first chance
+  const arrival = addDays(o, L), gap = Math.max(0, diffDays(stockout, arrival));
+  const T = M ? addDays(nextBlockStart(o, M), L + safety) : addDays(td, B);   // stock must last until the shipment of the next window / cycle has arrived
+  D = ctx.base * ctx.trend * clamp(evF(diffDays(td, T)));
+  const posA = projectStock(onhand, D, arr, td).projAt(diffDays(td, arrival));
+  let qty = Math.max(0, Math.ceil(D * Math.max(0, diffDays(arrival, T)) - posA - 1e-9));
+  if (qty > 0) { if (Number(p.moq) > 0) qty = Math.max(qty, Number(p.moq)); if (Number(p.pack_size) > 0) qty = Math.ceil(qty / Number(p.pack_size)) * Number(p.pack_size); }
+  Object.assign(out, {D, cover, firstGap: sim.gaps[0] || null, stockout, orderBy: o, arrival, gap, qty, lasts: qty > 0 ? qty / D : 0, coverUntil: T});
+  out.status = (gap > 0 || sim.gaps.length) ? 'Stock-out risk' : qty <= 0 ? 'Covered' : o <= addDays(td, 7) ? 'Order now' : o <= addDays(td, 30) ? 'Plan this month' : 'Upcoming';
+  if (sim.gaps.length) { const g = sim.gaps[0], ep = addDays(td, L);
+    out.notes.push(`Stock runs out on ${g.from}, but ${g.po ? 'PO ' + g.po : 'the open order'} is only expected on ${g.to}: about ${Math.round(g.days)} day(s) without stock (≈ ${fmt(Math.round(g.units))} units of sales at the current demand).`);
+    out.notes.push(ep >= g.to ? `A new order placed today would arrive on ${ep}, after that shipment, so only an earlier or split shipment of the existing PO can close the gap.` : `A new order placed today would arrive on ${ep}, before that shipment.`);
+    if (arr.some(a => a.late)) out.notes.push('An open PO is past its expected date; it is assumed to arrive in 7 days.');
+    if (M && !okDate(td, M)) out.notes.push(`Outside the order window. If the supplier accepts an emergency order today, it would arrive on ${ep}.`); }
+  if (gap > 0) out.notes.push(`Expected stock-out of about ${gap} day${gap === 1 ? '' : 's'} before the shipment can arrive.`);
+  if (M && qty > 0) out.notes.push(okDate(td, M) ? `Order window is open until ${blockEnd(td, M)}.` : `Order window is closed; it opens on ${nextOk(td, M)}.`);
+  if (qty > 0 && Number(p.shelf_life_days) > 0 && out.lasts > Number(p.shelf_life_days)) out.notes.push(`This order lasts ${Math.round(out.lasts)} days, longer than the ${p.shelf_life_days}-day shelf life. Consider splitting the shipment.`);
+  return out;
+}
+
+async function renderImport(v) {
   if (products.length && !('is_import' in products[0])) throw new Error('Run uol_step6_import_planning.sql in the Supabase SQL Editor first.');
-  const S = procS[scope], isImp = scope === 'import', whs = locations.filter(l => l.type === 'warehouse'), act = products.filter(p => p.is_active), td = today();
-  let snap = Hub.need(await Hub.get()); await Hub.ensureLY(snap);
-  const supNames = () => [...new Set(act.filter(p => !isImp || p.is_import !== false).map(p => p.supplier).filter(Boolean))].sort();
-  const supOf = p => p.supplier ? snap.supByName.get(norm(p.supplier)) || null : null;
+  const S = impS, whs = locations.filter(l => l.type === 'warehouse'), act = products.filter(p => p.is_active), td = today();
+  const winFrom = addDays(td, -(WINDOW_DAYS - 1)), prevFrom = addDays(winFrom, -WINDOW_DAYS), prevTo = addDays(winFrom, -1);
+  const [ls, fb, curP, prevP, abcP, evQ, supQ, trQ, ooQ, lcQ, arrivals] = await Promise.all([liveStock(), fcLoad(today()),
+    rpcAll('sales_agg', {p_from: winFrom, p_to: td, p_by_location: false}, 'prod_id'), rpcAll('sales_agg', {p_from: prevFrom, p_to: prevTo, p_by_location: false}, 'prod_id'),
+    rpcAll('sales_agg', {p_from: addDays(td, -(ABC_DAYS - 1)), p_to: td, p_by_location: false}, 'prod_id'),
+    db.from('season_events').select('*').eq('is_active', true), db.from('suppliers').select('*'),
+    fetchAll((a, b) => db.from('v_in_transit').select('product_id,qty').order('product_id').order('location_id').range(a, b)).then(data => ({data}), error => ({error})), db.from('v_on_order').select('product_id,qty'), db.from('v_last_cost').select('product_id,unit_cost'), loadArrivals()]);
+  const bad = [evQ, supQ, trQ, ooQ, lcQ].find(r => r.error); if (bad) throw need5(bad.error);
+  const mapP = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)])), curM = mapP(curP), prevM = mapP(prevP), abc = abcCompute(mapP(abcP), 80, 95).map;
+  const events = evQ.data, sups = supQ.data, supOf = p => p.supplier ? sups.find(s => norm(s.name) === norm(p.supplier)) : null;
+  const sumP = rows => { const m = new Map(); rows.forEach(r => m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.qty))); return m; };
+  const transit = sumP(trQ.data), onOrder = sumP(ooQ.data), lastCost = new Map(lcQ.data.map(r => [r.product_id, Number(r.unit_cost)]));
+  const whStock = new Map(), spStock = new Map(); ls.forEach(r => { const m = r.location_type === 'warehouse' ? whStock : spStock; m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.live_qty)); });
+  const fbByP = new Map(); fb.forEach(r => { if (!fbByP.has(r.prod_id)) fbByP.set(r.prod_id, []); fbByP.get(r.prod_id).push(fcRow(r)); });
+  const imports = act.filter(p => p.is_import !== false), supNames = [...new Set(imports.map(p => p.supplier).filter(Boolean))].sort();
   const reloadProducts = async () => { const r = await db.from('products').select('*').order('name'); if (r.error) throw r.error; products = r.data; };
-  const tabs = isImp ? [['plan', 'Order plan'], ['cal', '12-month calendar'], ['set', 'Import settings']] : [['plan', 'Order plan'], ['cal', '12-month calendar']];
-  if (!tabs.some(t => t[0] === S.view)) S.view = 'plan';
 
-  v.innerHTML = `<div class="card"><h2>${isImp ? 'Import Planning' : 'Reorder Planning'}</h2>
-    <p class="sub">${isImp ? 'Imported products only. ' : 'Every active product, imported and local. '}Shows what to buy, from which supplier and by when, so that stock is still available when the shipment arrives.
-      The planner combines <b>supplier lead time + clearance days</b>, the full stock position (warehouse + sales points + in-transit + on order), the live demand forecast, <b>safety days</b> and the
-      <b>months in which each product can be ordered</b>. If ordering is only possible in some months, the quantity is sized to last until the shipment from the <i>next</i> window arrives.
-      Suggested quantity is raised to the product's MOQ and rounded up to its pack size.</p>
-    <div class="row" id="pcTabs"></div></div><div id="pcFcs"></div><div id="pcBody"></div>`;
-  $('#pcFcs').innerHTML = fcsPanel({proc: true});
-  const drawTabs = () => { $('#pcTabs').innerHTML = tabs.map(([k, n]) => `<button class="btn ${S.view === k ? '' : 'alt'}" data-v="${k}">${n}</button>`).join('');
-    $('#pcTabs').querySelectorAll('[data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; drawTabs(); draw(); }); };
+  v.innerHTML = `<div class="card"><h2>Import Planning</h2>
+    <p class="sub">Forecasts when each imported product must be ordered so that stock is still available when the shipment arrives. For every product the planner combines
+      <b>supplier lead time + clearance days</b>, current stock (warehouse + sales points + in-transit + on order), forecast demand, <b>safety days</b> and the
+      <b>months in which that product can be ordered</b>. If ordering is only possible in some months, the order quantity is sized to last until the shipment from the <i>next</i> window arrives.</p>
+    <div class="row" id="imTabs"></div></div><div id="imBody"></div>`;
+  const tabs = [['plan', 'Order plan'], ['cal', '12-month calendar'], ['set', 'Import settings']];
+  const drawTabs = () => { $('#imTabs').innerHTML = tabs.map(([k, n]) => `<button class="btn ${S.view === k ? '' : 'alt'}" data-v="${k}">${n}</button>`).join('');
+    $('#imTabs').querySelectorAll('[data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; drawTabs(); draw(); }); };
 
-  // ---------- planning rows (shared by every view) ----------
+  // ---------- planning rows (shared by the plan and the calendar) ----------
   let rows = [], qtyEdit = new Map(), chk = new Set();
-  const calc = () => act.filter(p => !isImp || p.is_import !== false).map(p => { const r = Engine.procure(p, snap); r.cost = snap.lastCost.get(p.id); r.dr = snap.draft.get(p.id) || 0; return r; });
+  const calc = () => { const P = S.p; return imports.map(p => {
+    const cls = (abc.get(p.id) || {}).cls || 'X', sup = supOf(p);
+    let tf = 1; const trm = +P.tr; if (trm) { const c = curM.get(p.id) || 0, pv = prevM.get(p.id) || 0; if (pv >= 10) { const lim = trm === 1 ? 0.25 : 0.5; tf = Math.min(1 + lim, Math.max(1 - lim, c / pv)); } }
+    const base = (fbByP.get(p.id) || []).reduce((a, b) => a + fcBase(b, P.so), 0);
+    const r = impPlanRow(p, {today: td, P, cls, sup, base, trend: tf, events, arr: arrivals.get(p.id) || [], wh: Math.max(0, whStock.get(p.id) || 0), sp: Math.max(0, spStock.get(p.id) || 0), tr: transit.get(p.id) || 0, oo: onOrder.get(p.id) || 0});
+    r.cost = lastCost.get(p.id); return r; }); };
   const ST = {'Stock-out risk': 'b-do_not_give', 'Order now': 'b-partial', 'Plan this month': 'b-dispatched', 'Upcoming': 'b-ordered', 'Covered': 'b-received', 'No demand': 'b-cancelled'};
   const RANK = {'Stock-out risk': 0, 'Order now': 1, 'Plan this month': 2, 'Upcoming': 3, 'Covered': 4, 'No demand': 5};
   const qOf = r => qtyEdit.has(r.p.id) ? qtyEdit.get(r.p.id) : r.qty;
-  const visible = onlyAction => rows.filter(r => (!onlyAction || r.qty > 0) && (!S.p.abc || r.cls === S.p.abc) && (!S.p.type || (S.p.type === 'import' ? r.p.is_import !== false : r.p.is_import === false))
-    && (!S.p.sup || (S.p.sup === '__none' ? !r.p.supplier : norm(r.p.supplier) === norm(S.p.sup))) && (!S.p.q || norm(r.p.name).includes(norm(S.p.q))))
+  const visible = (onlyAction) => rows.filter(r => (!onlyAction || r.qty > 0) && (!S.p.abc || r.cls === S.p.abc) && (!S.p.sup || (S.p.sup === '__none' ? !r.p.supplier : norm(r.p.supplier) === norm(S.p.sup))) && (!S.p.q || norm(r.p.name).includes(norm(S.p.q))))
     .sort((a, b) => RANK[a.status] - RANK[b.status] || a.cover - b.cover);
-  const autoCheck = () => new Set(rows.filter(r => r.qty > 0 && (r.status === 'Stock-out risk' || r.status === 'Order now')).map(r => r.p.id));
-  const recalc = (keep) => { rows = calc(); if (keep) { chk = new Set([...chk].filter(id => rows.some(r => r.p.id === id && r.qty > 0))); [...qtyEdit.keys()].forEach(id => { if (!rows.some(r => r.p.id === id && r.qty > 0)) qtyEdit.delete(id); }); } else { qtyEdit = new Map(); chk = autoCheck(); } };
 
   // ---------- view 1: order plan ----------
   const drawPlan = () => {
-    const P = S.p, b = $('#pcBody');
-    b.innerHTML = `<div class="card"><div class="row"><div><label>Supplier</label><select id="pcSup"><option value="">All suppliers</option>${supNames().map(n => `<option>${esc(n)}</option>`).join('')}<option value="__none">(no supplier on product)</option></select></div>
-        <div><label>ABC class</label><select id="pcAbc"><option value="">All</option><option>A</option><option>B</option><option>C</option><option value="X">X (no sales)</option></select></div>
-        ${isImp ? '' : '<div><label>Product type</label><select id="pcType"><option value="">All products</option><option value="import">Imported only</option><option value="local">Local only</option></select></div>'}
-        <div><label>Search product</label><input type="text" id="pcQ" value="${esc(P.q)}" placeholder="Type to filter"></div>
-        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="pcOnly"> Only products to order</label>
-        <div><label>Receiving warehouse</label><select id="pcWh">${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
-        <button class="btn" id="pcMk">Create PO(s) for selected</button><button class="btn alt" id="pcX">Export Excel</button></div></div><div id="pcK"></div><div id="pcT"></div>`;
-    $('#pcSup').value = P.sup; $('#pcAbc').value = P.abc; $('#pcOnly').checked = P.only; if ($('#pcType')) $('#pcType').value = P.type;
-    ['pcSup', 'pcAbc', 'pcOnly', 'pcType'].forEach(id => { const el = $('#' + id); if (el) el.oninput = () => { P.sup = $('#pcSup').value; P.abc = $('#pcAbc').value; P.only = $('#pcOnly').checked; if ($('#pcType')) P.type = $('#pcType').value; drawTable(); }; });
-    $('#pcQ').oninput = () => { P.q = $('#pcQ').value; clearTimeout(drawPlan.t); drawPlan.t = setTimeout(drawTable, 200); };
-    $('#pcX').onclick = () => downloadSheet(`${isImp ? 'Import' : 'Reorder'}_Plan_${td}.xlsx`, [['Code', 'Product', 'Type', 'Class', 'Supplier', 'Warehouse stock', 'Sales point stock', 'In-transit', 'On order', 'Demand/day', 'Cover (days)', 'Stock-out date', 'Lead time', 'Clearance days', 'Order window', 'Order by', 'Arrival if ordered', 'Status', 'Order qty', 'Order lasts (days)', 'Last cost', 'Notes']]
-      .concat(visible(false).filter(r => r.qty > 0 || r.status === 'Stock-out risk').map(r => [r.p.sku || '', r.p.name, r.p.is_import === false ? 'Local' : 'Imported', r.cls, r.p.supplier || '', r.wh, r.sp, r.tr, r.oo, +r.D.toFixed(2), Number.isFinite(r.cover) ? +r.cover.toFixed(1) : '', r.stockout || '', r.lead, r.clr, fmtMonths(r.M), r.orderBy || '', r.arrival || '', r.status, qOf(r), Math.round(r.lasts) || '', r.cost ?? '', r.notes.join(' ')])));
-    $('#pcMk').onclick = () => {
+    const P = S.p, b = $('#imBody');
+    b.innerHTML = `<div class="card"><h3>Planning settings</h3>
+      <div class="row"><div><label>Safety days — class A</label><input type="number" id="imA" value="${P.A}" min="0" style="min-width:0;width:90px"></div><div><label>Class B</label><input type="number" id="imB" value="${P.B}" min="0" style="min-width:0;width:90px"></div><div><label>Class C</label><input type="number" id="imC" value="${P.C}" min="0" style="min-width:0;width:90px"></div>
+        <div><label>Default clearance &amp; transport days</label><input type="number" id="imClr" value="${P.clr}" min="0" style="min-width:0;width:130px"></div>
+        <div><label>Sales trend</label><select id="imTr"><option value="0">Off</option><option value="1">Moderate (±25%)</option><option value="2">Full (±50%)</option></select></div>
+        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="imSo"> Ignore stock-out days</label>
+        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="imSea"> Apply seasonal events</label></div>
+      <div class="row" style="margin-top:10px"><div><label>Supplier</label><select id="imSup"><option value="">All suppliers</option>${supNames.map(n => `<option>${esc(n)}</option>`).join('')}<option value="__none">(no supplier on product)</option></select></div>
+        <div><label>ABC class</label><select id="imAbc"><option value="">All</option><option>A</option><option>B</option><option>C</option><option value="X">X (no sales)</option></select></div>
+        <div><label>Search product</label><input type="text" id="imQ" value="${esc(P.q)}" placeholder="Type to filter"></div>
+        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="imOnly"> Only products to order</label>
+        <div><label>Receiving warehouse</label><select id="imWh">${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
+        <button class="btn" id="imMk">Create PO(s) for selected</button><button class="btn alt" id="imX">Export Excel</button></div></div><div id="imK"></div><div id="imT"></div>`;
+    $('#imTr').value = P.tr; $('#imSo').checked = P.so; $('#imSea').checked = P.sea; $('#imSup').value = P.sup; $('#imAbc').value = P.abc; $('#imOnly').checked = P.only;
+    const recalc = () => { Object.assign(P, {A: +$('#imA').value || 0, B: +$('#imB').value || 0, C: +$('#imC').value || 0, clr: +$('#imClr').value || 0, tr: $('#imTr').value, so: $('#imSo').checked, sea: $('#imSea').checked});
+      rows = calc(); qtyEdit = new Map(); chk = new Set(rows.filter(r => r.qty > 0 && (r.status === 'Stock-out risk' || r.status === 'Order now')).map(r => r.p.id)); drawTable(); };
+    ['imA', 'imB', 'imC', 'imClr', 'imTr', 'imSo', 'imSea'].forEach(id => $('#' + id).oninput = recalc);
+    ['imSup', 'imAbc', 'imOnly'].forEach(id => $('#' + id).oninput = () => { P.sup = $('#imSup').value; P.abc = $('#imAbc').value; P.only = $('#imOnly').checked; drawTable(); });
+    $('#imQ').oninput = () => { P.q = $('#imQ').value; clearTimeout(drawPlan.t); drawPlan.t = setTimeout(drawTable, 200); };
+    $('#imX').onclick = () => downloadSheet(`Import_Plan_${td}.xlsx`, [['Code', 'Product', 'Class', 'Supplier', 'Warehouse stock', 'Sales point stock', 'In-transit', 'On order', 'Demand/day', 'Cover (days)', 'Stock-out date', 'Lead time', 'Clearance days', 'Order window', 'Order by', 'Arrival if ordered', 'Status', 'Order qty', 'Order lasts (days)', 'Last cost', 'Notes']]
+      .concat(visible(false).filter(r => r.qty > 0 || r.status === 'Stock-out risk').map(r => [r.p.sku || '', r.p.name, r.cls, r.p.supplier || '', r.wh, r.sp, r.tr, r.oo, +r.D.toFixed(2), Number.isFinite(r.cover) ? +r.cover.toFixed(1) : '', r.stockout || '', r.lead, r.clr, fmtMonths(r.M), r.orderBy || '', r.arrival || '', r.status, qOf(r), Math.round(r.lasts) || '', r.cost ?? '', r.notes.join(' ')])));
+    $('#imMk').onclick = () => {
       const sel = rows.filter(r => chk.has(r.p.id) && qOf(r) > 0); if (!sel.length) return toast('Tick at least one product with an order quantity.', 'err');
       const groups = new Map(), missing = new Set();
       sel.forEach(r => { if (!r.sup) { missing.add(r.p.supplier || '(no supplier)'); return; } if (!groups.has(r.sup.id)) groups.set(r.sup.id, {sup: r.sup, lines: []}); groups.get(r.sup.id).lines.push({product_id: r.p.id, qty: qOf(r), unit_cost: r.cost ?? null}); });
       if (missing.size) return toast(`Add these suppliers in Master Data → Suppliers first: ${[...missing].join(', ')}`, 'err');
-      const wh = $('#pcWh').value; if (!wh) return toast('Choose the receiving warehouse.', 'err');
+      const wh = $('#imWh').value; if (!wh) return toast('Choose the receiving warehouse.', 'err');
       openForm(`Create ${groups.size} draft purchase order(s)`, [{k: 'info', label: 'Summary', value: [...groups.values()].map(g => `${g.sup.name}: ${g.lines.length} products`).join(' · '), readonly: true},
         {k: 'date', label: 'PO date', type: 'date', value: td}, {k: 'note', label: 'Note (optional)'}], async f => {
         const made = [];
@@ -1797,40 +1783,40 @@ async function renderProcure(v, scope) {
         toast(`${made.length} draft PO(s) created: ${made.join(', ')}`); await showTab('po');
       });
     };
-    drawTable();
+    recalc();
   };
   const kpi = () => {
     const sel = rows.filter(r => chk.has(r.p.id) && qOf(r) > 0), val = sel.reduce((a, r) => a + qOf(r) * (r.cost || 0), 0), noCost = sel.filter(r => r.cost == null).length;
     const closed = rows.filter(r => r.M && r.qty > 0 && !okDate(td, r.M)).length, due30 = rows.filter(r => r.qty > 0 && r.orderBy && r.orderBy <= addDays(td, 30)).length;
-    $('#pcK').innerHTML = `<div class="grid" style="margin-bottom:14px"><div class="tile"><small>Products tracked</small><b>${rows.length}</b></div>
+    $('#imK').innerHTML = `<div class="grid" style="margin-bottom:14px"><div class="tile"><small>Imported products tracked</small><b>${rows.length}</b></div>
       <div class="tile"><small>Stock-out risk (shipment arrives too late)</small><b>${rows.filter(r => r.status === 'Stock-out risk').length}</b></div>
       <div class="tile"><small>Orders due within 30 days</small><b>${due30}</b></div>
       <div class="tile"><small>Need ordering but window is closed</small><b>${closed}</b></div>
       <div class="tile"><small>Selected for PO</small><b>${sel.length} products</b><small>${val ? 'Est. Tk ' + fmt(val) : ''}${noCost ? ` · ${noCost} without a known cost` : ''}</small></div></div>`;
   };
   const drawTable = () => {
-    if (!$('#pcT')) return;
     const list = visible(S.p.only);
-    $('#pcT').innerHTML = `<div class="card"><div class="tablewrap"><table><thead><tr><th></th><th>Product</th><th>Supplier</th><th class="n">Stock now</th><th class="n">In pipeline</th><th class="n">Demand / day</th><th class="n">Cover (days)</th><th>Stock-out date</th><th class="n">Lead + clearance</th><th>Order window</th><th>Order by</th><th>Status</th><th class="n">Order qty</th><th class="n">Lasts (days)</th><th class="n">Value</th><th>Notes</th></tr></thead><tbody>
-      ${list.map(r => { const late = r.orderBy && r.orderBy <= td && r.qty > 0; return `<tr><td><input type="checkbox" data-k="${r.p.id}" ${chk.has(r.p.id) ? 'checked' : ''} ${r.qty > 0 ? '' : 'disabled'}></td><td style="min-width:210px">${esc(r.p.name)} <span class="badge ${CLS_BADGE[r.cls]}">${r.cls}</span>${r.p.is_import === false ? ' <span class="badge b-draft">Local</span>' : ''}</td>
-        <td>${r.sup ? esc(r.sup.name) : r.p.supplier ? `<span class="muted" title="Not in the suppliers list">${esc(r.p.supplier)} ⚠</span>` : '<span class="muted">—</span>'}</td><td class="n">${fmt(r.wh + r.sp)}</td><td class="n">${fmt(r.tr + r.oo)}${r.dr ? `<br><small class="muted">+${fmt(r.dr)} in draft PO</small>` : ''}</td>
+    $('#imT').innerHTML = `<div class="card"><div class="tablewrap"><table><thead><tr><th></th><th>Product</th><th>Supplier</th><th class="n">Stock now</th><th class="n">In pipeline</th><th class="n">Demand / day</th><th class="n">Cover (days)</th><th>Stock-out date</th><th class="n">Lead + clearance</th><th>Order window</th><th>Order by</th><th>Status</th><th class="n">Order qty</th><th class="n">Lasts (days)</th><th class="n">Value</th><th>Notes</th></tr></thead><tbody>
+      ${list.map(r => { const late = r.orderBy && r.orderBy <= td && r.qty > 0; return `<tr><td><input type="checkbox" data-k="${r.p.id}" ${chk.has(r.p.id) ? 'checked' : ''} ${r.qty > 0 ? '' : 'disabled'}></td><td style="min-width:210px">${esc(r.p.name)} <span class="badge ${CLS_BADGE[r.cls]}">${r.cls}</span></td>
+        <td>${r.sup ? esc(r.sup.name) : r.p.supplier ? `<span class="muted" title="Not in the suppliers list">${esc(r.p.supplier)} ⚠</span>` : '<span class="muted">—</span>'}</td><td class="n">${fmt(r.wh + r.sp)}</td><td class="n">${fmt(r.tr + r.oo)}</td>
         <td class="n">${fmt(r.D)}</td><td class="n">${Number.isFinite(r.cover) ? fmt(r.cover) : '—'}</td><td style="white-space:nowrap">${r.stockout || '—'}</td><td class="n">${r.lead} + ${r.clr}</td><td style="white-space:nowrap">${fmtMonths(r.M)}</td>
-        <td style="white-space:nowrap;${late ? 'color:#b91c1c;font-weight:700' : ''}">${r.orderBy ? (r.orderBy <= td && r.qty > 0 ? 'Now' : r.orderBy) : ''}</td><td><span class="badge ${ST[r.status]}">${r.status}</span></td>
+        <td style="white-space:nowrap;${late ? 'color:#b91c1c;font-weight:700' : ''}">${r.orderBy ? (r.orderBy <= td && r.qty > 0 ? 'Now' : r.orderBy) : ''}</td><td><span class="badge ${ST[r.status]}">${r.status}</span>${r.warn ? `<br><small style="color:#b91c1c">${esc(r.warn)}</small>` : ''}</td>
         <td class="n">${r.qty > 0 ? `<input type="number" min="0" step="any" data-q="${r.p.id}" value="${qOf(r)}" style="min-width:0;width:90px;text-align:right">` : '0'}</td><td class="n">${r.lasts ? fmt(Math.round(r.lasts)) : ''}</td><td class="n" id="iv_${r.p.id}">${r.cost == null || !qOf(r) ? '' : fmt(qOf(r) * r.cost)}</td>
         <td style="min-width:240px;font-size:12.5px">${r.notes.map(esc).join('<br>')}</td></tr>`; }).join('') || '<tr><td colspan="16" class="muted">Nothing to order with these settings.</td></tr>'}
       </tbody></table></div><p class="sub" style="margin:10px 0 0"><b>Order by</b> = the latest allowed day to place the order so that it arrives before stock runs out. <b>Lasts</b> = how many days the suggested quantity covers on its own. You can edit the quantity before creating the PO.</p></div>`;
-    $('#pcT').querySelectorAll('[data-k]').forEach(c => c.onchange = () => { c.checked ? chk.add(c.dataset.k) : chk.delete(c.dataset.k); kpi(); });
-    $('#pcT').querySelectorAll('[data-q]').forEach(i => i.onchange = () => { const r = rows.find(x => x.p.id === i.dataset.q), n = Number(i.value); if (!(n >= 0)) { i.value = qOf(r); return; } qtyEdit.set(r.p.id, n);
+    $('#imT').querySelectorAll('[data-k]').forEach(c => c.onchange = () => { c.checked ? chk.add(c.dataset.k) : chk.delete(c.dataset.k); kpi(); });
+    $('#imT').querySelectorAll('[data-q]').forEach(i => i.onchange = () => { const r = rows.find(x => x.p.id === i.dataset.q), n = Number(i.value); if (!(n >= 0)) { i.value = qOf(r); return; } qtyEdit.set(r.p.id, n);
       $('#iv_' + r.p.id).textContent = r.cost == null || !n ? '' : fmt(n * r.cost); kpi(); });
     kpi();
   };
 
   // ---------- view 2: 12-month calendar ----------
   const drawCal = () => {
+    if (!rows.length) rows = calc();
     const months = []; for (let i = 0, y = +td.slice(0, 4), m = monthOf(td); i < 12; i++, m++) { if (m > 12) { m = 1; y++; } months.push({y, m, key: `${y}-${String(m).padStart(2, '0')}`}); }
     const list = visible(false).filter(r => r.D > 0);
-    $('#pcBody').innerHTML = `<div class="card"><h3>Next 12 months</h3><p class="sub">Shaded months are the months in which the product can be ordered. <b>O</b> = latest day to order, <b>A</b> = arrival of that order, <b>S</b> = month the current stock runs out.</p>
-      <div class="row" style="margin-bottom:10px"><div><label>Supplier</label><select id="caSup"><option value="">All suppliers</option>${supNames().map(n => `<option>${esc(n)}</option>`).join('')}</select></div><div><label>Search product</label><input type="text" id="caQ" value="${esc(S.p.q)}"></div></div>
+    $('#imBody').innerHTML = `<div class="card"><h3>Next 12 months</h3><p class="sub">Shaded months are the months in which the product can be ordered. <b>O</b> = latest day to order, <b>A</b> = arrival of that order, <b>S</b> = month the current stock runs out.</p>
+      <div class="row" style="margin-bottom:10px"><div><label>Supplier</label><select id="caSup"><option value="">All suppliers</option>${supNames.map(n => `<option>${esc(n)}</option>`).join('')}</select></div><div><label>Search product</label><input type="text" id="caQ" value="${esc(S.p.q)}"></div></div>
       <div class="tablewrap"><table style="min-width:900px"><thead><tr><th>Product</th>${months.map(m => `<th class="n" style="text-align:center">${MON_LBL[m.m - 1]}<br><small>${String(m.y).slice(2)}</small></th>`).join('')}</tr></thead><tbody>
       ${list.map(r => { const ok = r.orderBy ? r.orderBy.slice(0, 7) : '', ak = r.arrival ? r.arrival.slice(0, 7) : '', sk = r.stockout ? r.stockout.slice(0, 7) : '';
         return `<tr><td style="white-space:nowrap">${esc(r.p.name)} <span class="badge ${ST[r.status]}">${r.status}</span></td>${months.map(m => {
@@ -1844,7 +1830,7 @@ async function renderProcure(v, scope) {
   // ---------- view 3: import settings ----------
   const drawSet = () => {
     const q = norm(S.p.q), list = act.filter(p => !q || norm(p.name).includes(q));
-    $('#pcBody').innerHTML = `<div class="card"><h3>Import settings per product</h3>
+    $('#imBody').innerHTML = `<div class="card"><h3>Import settings per product</h3>
       <p class="sub"><b>Order months</b> = the months in which this product can be ordered (for example the harvest or export season). Leave it as "All year" if you can order at any time. <b>Clearance days</b> = extra days for shipping, customs and transport on top of the supplier lead time. <b>Shelf life</b> is optional and only used to warn about orders that last longer than the product stays fresh. Local (non-imported) products can be switched off here and are left out of this planner.</p>
       <div class="row"><div><label>Search product</label><input type="text" id="seQ" value="${esc(S.p.q)}"></div><button class="btn alt" id="seX">Download current settings</button>
         <div><label>Settings sheet (.xlsx / .csv)</label><input type="file" id="seFile" accept=".xlsx,.xls,.csv"></div><button class="btn" id="seGo">Import / Update</button></div><div id="seMsg"></div>
@@ -1852,7 +1838,7 @@ async function renderProcure(v, scope) {
       ${list.map(p => { const sup = supOf(p); return `<tr><td>${esc(p.sku || '')}</td><td>${esc(p.name)}</td><td>${p.is_import === false ? 'No' : 'Yes'}</td><td>${fmtMonths(p.order_months)}</td><td class="n">${p.lead_time_days ?? sup?.lead_time_days ?? 14}</td><td class="n">${p.clearance_days ?? '<span class="muted">default</span>'}</td><td class="n">${p.shelf_life_days ?? ''}</td><td><button class="mini" data-e="${p.id}">Edit</button></td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No products found.</td></tr>'}</tbody></table></div></div>`;
     $('#seQ').oninput = () => { S.p.q = $('#seQ').value; clearTimeout(drawSet.t); drawSet.t = setTimeout(drawSet, 250); };
     const mTxt = p => p.order_months && p.order_months.length && p.order_months.length < 12 ? fmtMonths(p.order_months) : 'All';
-    $('#pcBody').querySelectorAll('[data-e]').forEach(btn => btn.onclick = () => { const p = products.find(x => x.id === btn.dataset.e);
+    $('#imBody').querySelectorAll('[data-e]').forEach(btn => btn.onclick = () => { const p = products.find(x => x.id === btn.dataset.e);
       openForm(`Import settings — ${p.name}`, [{k: 'imp', label: 'Imported product', value: p.is_import === false ? 'no' : 'yes', options: [['yes', 'Yes — imported'], ['no', 'No — local purchase']]},
         {k: 'mo', label: 'Months when ordering is possible (e.g. Oct-Feb, or 3,4,5; type All for every month)', value: mTxt(p)},
         {k: 'cl', label: 'Clearance and transport days after shipment (optional)', type: 'number', value: p.clearance_days}, {k: 'sh', label: 'Shelf life in days (optional)', type: 'number', value: p.shelf_life_days}], async f => {
@@ -1888,12 +1874,8 @@ async function renderProcure(v, scope) {
     };
   };
   const draw = () => S.view === 'cal' ? drawCal() : S.view === 'set' ? drawSet() : drawPlan();
-  fcsBind(() => { recalc(false); draw(); });
-  Hub.onChange(s => { snap = s; recalc(true); if (S.view === 'plan') drawTable(); else if (S.view === 'cal') drawCal(); });
-  recalc(false); drawTabs(); draw();
+  drawTabs(); draw();
 }
-async function renderReorder(v) { return renderProcure(v, 'all'); }
-async function renderImport(v) { return renderProcure(v, 'import'); }
 
 // ============================ AUDIT TRAIL ============================
 async function renderAudit(v) {
@@ -1958,6 +1940,21 @@ async function renderAbc(v) {
 
 // ============================ PLANNING RULES (buffer rules + seasonal events) ============================
 async function renderPlanRules(v) {
+  await renderPlanRules0(v);
+  const sumW = hl => 1 / (1 - Math.pow(0.5, 1 / hl));
+  const eg = hl => { const w = sumW(hl); return `a product that normally sells 10 a day and then sells 30 in one day: the forecast rises to about <b>${fmt(10 + 20 / w)}</b> a day at once, then falls back over the following days; if it sells only 2 in a day it drops to about <b>${fmt(10 - 8 / w)}</b>`; };
+  v.insertAdjacentHTML('afterbegin', `<div class="card"><h2>Live forecast settings</h2>
+    <p class="sub">One setting for the whole system: Distribution &amp; Forecasting, Reorder Planning and Import Planning all use the same live demand. Days on which a product had no stock, and days on which a sales point sent no sales data, are not counted as zero sales.</p>
+    <div class="row"><div><label>How fast the forecast follows sales</label><select id="fcHl">${FC_HL.map(([h, n]) => `<option value="${h}" ${h === FC.hl ? 'selected' : ''}>${n} (recent days count double every ${h} days)</option>`).join('')}</select></div>
+    <button class="btn" id="fcSave">Save</button></div><p class="sub" id="fcEg" style="margin:8px 0 0"></p><div id="fcM"></div></div>`);
+  const show = () => { $('#fcEg').innerHTML = 'Example: ' + eg(+$('#fcHl').value) + '.'; }; $('#fcHl').onchange = show; show();
+  $('#fcSave').onclick = async () => {
+    const h = +$('#fcHl').value, r = await db.from('app_settings').upsert({key: 'fc_halflife', value: String(h)}, {onConflict: 'key'});
+    if (r.error) return note($('#fcM'), esc('Only a Super Admin or Admin can change this setting. ' + r.error.message), 'err');
+    FC.hl = h; audit('update', 'app_settings', `Live forecast responsiveness set to ${h}-day half-life`, {fc_halflife: h}); toast('Saved. All planners now use the new setting.');
+  };
+}
+async function renderPlanRules0(v) {
   const [rq, eq] = await Promise.all([db.from('plan_rules').select('*').order('scope').order('rule_key'), db.from('season_events').select('*').order('start_date', {ascending: false})]);
   const miss = ['42P01', 'PGRST205'].includes((rq.error || eq.error || {}).code); if (miss) throw new Error('Run uol_step4_forecasting.sql in the Supabase SQL Editor first.'); if (rq.error || eq.error) throw (rq.error || eq.error);
   const rules = rq.data, events = eq.data;
@@ -2076,6 +2073,95 @@ async function mdSuppliers(b) {
 // ---------- Reorder planning: how much to buy, from whom, and by when ----------
 // Target stock = network demand per day x (lead time + review days + safety days)
 // Position = warehouse stock + sales point stock + in-transit + already on order
+async function renderReorder(v) {
+  const whs = locations.filter(l => l.type === 'warehouse'), act = products.filter(p => p.is_active);
+  const winFrom = addDays(today(), -(WINDOW_DAYS - 1)), prevFrom = addDays(winFrom, -WINDOW_DAYS), prevTo = addDays(winFrom, -1);
+  const [ls, fb, curP, prevP, abcP, evQ, supQ, trQ, ooQ, drQ, lcQ, arrivals] = await Promise.all([liveStock(), fcLoad(today()),
+    rpcAll('sales_agg', {p_from: winFrom, p_to: today(), p_by_location: false}, 'prod_id'), rpcAll('sales_agg', {p_from: prevFrom, p_to: prevTo, p_by_location: false}, 'prod_id'),
+    rpcAll('sales_agg', {p_from: addDays(today(), -(ABC_DAYS - 1)), p_to: today(), p_by_location: false}, 'prod_id'),
+    db.from('season_events').select('*').eq('is_active', true), db.from('suppliers').select('*'),
+    fetchAll((a, b) => db.from('v_in_transit').select('product_id,qty').order('product_id').order('location_id').range(a, b)).then(data => ({data}), error => ({error})), db.from('v_on_order').select('product_id,qty'), db.from('v_draft_po').select('product_id,qty'), db.from('v_last_cost').select('product_id,unit_cost'), loadArrivals()]);
+  const bad = [evQ, supQ, trQ, ooQ, drQ, lcQ].find(r => r.error); if (bad) throw need5(bad.error);
+  const mapP = rows => new Map(rows.map(r => [r.prod_id, Number(r.qty)])), curM = mapP(curP), prevM = mapP(prevP), abc = abcCompute(mapP(abcP), 80, 95).map;
+  const events = evQ.data, sups = supQ.data, supOf = p => p.supplier ? sups.find(s => norm(s.name) === norm(p.supplier)) : null;
+  const sumP = rows => { const m = new Map(); rows.forEach(r => m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.qty))); return m; };
+  const transit = sumP(trQ.data), onOrder = sumP(ooQ.data), draft = sumP(drQ.data), lastCost = new Map(lcQ.data.map(r => [r.product_id, Number(r.unit_cost)]));
+  const whStock = new Map(), spStock = new Map(); ls.forEach(r => { const m = r.location_type === 'warehouse' ? whStock : spStock; m.set(r.product_id, (m.get(r.product_id) || 0) + Number(r.live_qty)); });
+  const fbByP = new Map(); fb.forEach(r => { if (!fbByP.has(r.prod_id)) fbByP.set(r.prod_id, []); fbByP.get(r.prod_id).push(fcRow(r)); });
+  const supNames = [...new Set(act.map(p => p.supplier).filter(Boolean))].sort();
+  v.innerHTML = `<div class="card"><h2>Reorder Planning</h2>
+    <p class="sub">Shows what to buy, from which supplier and by when. <b>Target stock</b> = demand per day × (supplier lead time + review days + safety days). <b>Position</b> = warehouse stock + sales point stock + in-transit + already on order. Suggested quantity = target − position, raised to the product's MOQ and rounded up to its pack size. Demand uses the same forecast as Distribution &amp; Forecasting (stock-out days ignored, optional trend and seasonal events). Lead time comes from the product, else the supplier (default 14 days).</p>
+    <div class="row"><div><label>Safety days — class A</label><input type="number" id="roA" value="10" min="0" style="min-width:0;width:90px"></div><div><label>Class B</label><input type="number" id="roB" value="7" min="0" style="min-width:0;width:90px"></div><div><label>Class C</label><input type="number" id="roC" value="5" min="0" style="min-width:0;width:90px"></div>
+    <div><label>Sales trend</label><select id="roTr"><option value="0">Off</option><option value="1">Moderate (±25%)</option><option value="2">Full (±50%)</option></select></div>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="roSo" checked> Ignore stock-out days</label>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="roSea" checked> Apply seasonal events</label></div>
+    <div class="row" style="margin-top:8px"><div><label>Supplier</label><select id="roSup"><option value="">All suppliers</option>${supNames.map(n => `<option>${esc(n)}</option>`).join('')}<option value="__none">(no supplier on product)</option></select></div>
+    <div><label>ABC class</label><select id="roAbc"><option value="">All</option><option>A</option><option>B</option><option>C</option><option value="X">X (no sales)</option></select></div>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="roOnly" checked> Only products to order</label>
+    <div><label>Receiving warehouse</label><select id="roWh">${whs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
+    <button class="btn" id="roMk">Create PO(s) for selected</button><button class="btn alt" id="roX">Export Excel</button></div></div><div id="roK"></div><div id="roT"></div>`;
+  persistUi('reorder', ['roA', 'roB', 'roC', 'roTr', 'roSo', 'roSea', 'roSup', 'roAbc', 'roOnly', 'roWh']);
+  let rows = [], qtyEdit = new Map(), chk = new Set();
+  const calc = () => {
+    const sd = {A: +$('#roA').value || 0, B: +$('#roB').value || 0, C: +$('#roC').value || 0, X: 0}, so = $('#roSo').checked, trm = +$('#roTr').value, sea = $('#roSea').checked;
+    return act.map(p => {
+      const cls = (abc.get(p.id) || {}).cls || 'X', sup = supOf(p), lead = p.lead_time_days ?? sup?.lead_time_days ?? 14, review = sup?.review_days ?? 7, safety = sd[cls] ?? 0, H = lead + review + safety;
+      let tf = 1; if (trm) { const c = curM.get(p.id) || 0, pv = prevM.get(p.id) || 0; if (pv >= 10) { const lim = trm === 1 ? 0.25 : 0.5; tf = Math.min(1 + lim, Math.max(1 - lim, c / pv)); } }
+      const factor = Math.min(4, Math.max(0.3, tf * (sea ? eventFactor(events, p, today(), H) : 1)));
+      const D = (fbByP.get(p.id) || []).reduce((a, b) => a + fcBase(b, so), 0) * factor;
+      const wh = Math.max(0, whStock.get(p.id) || 0), sp = Math.max(0, spStock.get(p.id) || 0), tr = transit.get(p.id) || 0, oo = onOrder.get(p.id) || 0, pos = wh + sp + tr + oo;
+      const cover = D > 0 ? pos / D : Infinity; let qty = D > 0 ? Math.max(0, Math.ceil(D * H - pos - 1e-9)) : 0;
+      if (qty > 0) { if (Number(p.moq) > 0) qty = Math.max(qty, Number(p.moq)); if (Number(p.pack_size) > 0) qty = Math.ceil(qty / Number(p.pack_size)) * Number(p.pack_size); }
+      const arrP = (arrivals.get(p.id) || []).map(a => ({po: a.po, qty: a.qty, date: a.date ? (a.date < today() ? addDays(today(), 7) : a.date) : addDays(a.base || today(), lead)})), sim = D > 0 ? projectStock(wh + sp + tr, D, arrP, today()) : null;
+      const warn = sim && sim.gaps.length ? `Stock runs out ${sim.gaps[0].from}; PO ${sim.gaps[0].po || ''} arrives ${sim.gaps[0].to} (~${Math.round(sim.gaps[0].days)} days without stock)` : '';
+      const status = D <= 0 ? 'No demand' : warn ? 'Urgent' : cover <= lead ? 'Urgent' : cover <= lead + safety ? 'Order now' : cover <= H ? 'Order this cycle' : 'OK';
+      return {p, cls, sup, lead, H, D, wh, sp, tr, oo, warn, dr: draft.get(p.id) || 0, pos, cover, qty, status, cost: lastCost.get(p.id), orderBy: Number.isFinite(cover) ? addDays(today(), Math.floor(cover - lead)) : null};
+    });
+  };
+  const ST = {'Urgent': 'b-do_not_give', 'Order now': 'b-partial', 'Order this cycle': 'b-dispatched', 'OK': 'b-received', 'No demand': 'b-cancelled'}, RANK = {'Urgent': 0, 'Order now': 1, 'Order this cycle': 2, 'OK': 3, 'No demand': 4};
+  const qOf = r => qtyEdit.has(r.p.id) ? qtyEdit.get(r.p.id) : r.qty;
+  const kpi = () => {
+    const sel = rows.filter(r => chk.has(r.p.id) && qOf(r) > 0), val = sel.reduce((a, r) => a + qOf(r) * (r.cost || 0), 0), noCost = sel.filter(r => r.cost == null).length;
+    $('#roK').innerHTML = `<div class="grid" style="margin-bottom:14px"><div class="tile"><small>Products to order</small><b>${rows.filter(r => r.qty > 0).length}</b></div><div class="tile"><small>Urgent (will run out before delivery)</small><b>${rows.filter(r => r.status === 'Urgent').length}</b></div>
+      <div class="tile"><small>Selected for PO</small><b>${sel.length} products</b><small>${val ? 'Est. Tk ' + fmt(val) : ''}${noCost ? ` · ${noCost} without a known cost` : ''}</small></div></div>`;
+  };
+  const draw = () => {
+    const sf = $('#roSup').value, ab = $('#roAbc').value, only = $('#roOnly').checked;
+    const list = rows.filter(r => (!only || r.qty > 0 || r.warn) && (!ab || r.cls === ab) && (!sf || (sf === '__none' ? !r.p.supplier : norm(r.p.supplier) === norm(sf)))).sort((a, b) => RANK[a.status] - RANK[b.status] || a.cover - b.cover);
+    $('#roT').innerHTML = `<div class="card"><div class="tablewrap"><table><thead><tr><th></th><th>Product</th><th>Supplier</th><th class="n">Warehouse</th><th class="n">Sales points</th><th class="n">In-transit</th><th class="n">On order</th><th class="n">Demand / day</th><th class="n">Cover (days)</th><th class="n">Lead time</th><th>Order by</th><th>Status</th><th class="n">Order qty</th><th class="n">Last cost</th><th class="n">Value</th></tr></thead><tbody>
+      ${list.map(r => { const late = r.orderBy && r.orderBy < today(); return `<tr><td><input type="checkbox" data-k="${r.p.id}" ${chk.has(r.p.id) ? 'checked' : ''} ${r.qty > 0 ? '' : 'disabled'}></td><td>${esc(r.p.name)} <span class="badge ${CLS_BADGE[r.cls]}">${r.cls}</span></td>
+        <td>${r.sup ? esc(r.sup.name) : r.p.supplier ? `<span class="muted" title="Not in the suppliers list">${esc(r.p.supplier)} ⚠</span>` : '<span class="muted">—</span>'}</td><td class="n">${fmt(r.wh)}</td><td class="n">${fmt(r.sp)}</td><td class="n">${fmt(r.tr)}</td><td class="n">${fmt(r.oo)}${r.dr ? `<br><small class="muted">+${fmt(r.dr)} in draft PO</small>` : ''}</td>
+        <td class="n">${fmt(r.D)}</td><td class="n">${Number.isFinite(r.cover) ? fmt(r.cover) : '—'}</td><td class="n">${r.lead}</td><td style="white-space:nowrap;${late ? 'color:#b91c1c' : ''}">${r.orderBy ? (late ? 'Late — ' : '') + r.orderBy : ''}</td><td><span class="badge ${ST[r.status]}">${r.status}</span></td>
+        <td class="n">${r.qty > 0 ? `<input type="number" min="0" step="any" data-q="${r.p.id}" value="${qOf(r)}" style="min-width:0;width:90px;text-align:right">` : '0'}</td><td class="n">${r.cost == null ? '' : fmt(r.cost)}</td><td class="n" id="rv_${r.p.id}">${r.cost == null || !qOf(r) ? '' : fmt(qOf(r) * r.cost)}</td></tr>`; }).join('') || '<tr><td colspan="15" class="muted">Nothing to order with these settings.</td></tr>'}
+      </tbody></table></div></div>`;
+    $('#roT').querySelectorAll('[data-k]').forEach(c => c.onchange = () => { c.checked ? chk.add(c.dataset.k) : chk.delete(c.dataset.k); kpi(); });
+    $('#roT').querySelectorAll('[data-q]').forEach(i => i.onchange = () => { const r = rows.find(x => x.p.id === i.dataset.q), n = Number(i.value); if (!(n >= 0)) { i.value = qOf(r); return; } qtyEdit.set(r.p.id, n);
+      $('#rv_' + r.p.id).textContent = r.cost == null || !n ? '' : fmt(n * r.cost); kpi(); });
+    kpi();
+  };
+  const recalc = () => { rows = calc(); qtyEdit = new Map(); chk = new Set(rows.filter(r => r.qty > 0 && (r.status === 'Urgent' || r.status === 'Order now')).map(r => r.p.id)); draw(); };
+  ['roA', 'roB', 'roC', 'roTr', 'roSo', 'roSea'].forEach(id => $('#' + id).oninput = recalc); ['roSup', 'roAbc', 'roOnly'].forEach(id => $('#' + id).oninput = draw);
+  $('#roX').onclick = () => downloadSheet(`Reorder_Plan_${today()}.xlsx`, [['Code', 'Product', 'Class', 'Supplier', 'Warehouse stock', 'Sales point stock', 'In-transit', 'On order', 'Demand/day', 'Cover (days)', 'Lead time', 'Order by', 'Status', 'Order qty', 'Last cost']]
+    .concat(rows.filter(r => r.qty > 0).sort((a, b) => RANK[a.status] - RANK[b.status] || a.cover - b.cover).map(r => [r.p.sku || '', r.p.name, r.cls, r.p.supplier || '', r.wh, r.sp, r.tr, r.oo, +r.D.toFixed(2), Number.isFinite(r.cover) ? +r.cover.toFixed(1) : '', r.lead, r.orderBy || '', r.status, qOf(r), r.cost ?? ''])));
+  $('#roMk').onclick = () => {
+    const sel = rows.filter(r => chk.has(r.p.id) && qOf(r) > 0); if (!sel.length) return toast('Tick at least one product with an order quantity.', 'err');
+    const groups = new Map(), missing = new Set();
+    sel.forEach(r => { if (!r.sup) { missing.add(r.p.supplier || '(no supplier)'); return; } if (!groups.has(r.sup.id)) groups.set(r.sup.id, {sup: r.sup, lines: []}); groups.get(r.sup.id).lines.push({product_id: r.p.id, qty: qOf(r), unit_cost: r.cost ?? null}); });
+    if (missing.size) return toast(`Add these suppliers in Master Data → Suppliers first: ${[...missing].join(', ')}`, 'err');
+    const wh = $('#roWh').value; if (!wh) return toast('Choose the receiving warehouse.', 'err');
+    openForm(`Create ${groups.size} draft purchase order(s)`, [{k: 'info', label: 'Summary', value: [...groups.values()].map(g => `${g.sup.name}: ${g.lines.length} products`).join(' · '), readonly: true},
+      {k: 'date', label: 'PO date', type: 'date', value: today()}, {k: 'note', label: 'Note (optional)'}], async f => {
+      const made = [];
+      try { for (const g of groups.values()) {
+        const {data, error} = await db.rpc('create_po', {p_supplier: g.sup.id, p_warehouse: wh, p_date: f.date || today(), p_expected: addDays(f.date || today(), g.sup.lead_time_days), p_note: f.note || null, p_lines: g.lines});
+        if (error) throw new Error(`${g.sup.name}: ${error.message}`); made.push(data); }
+      } catch (e) { throw new Error(e.message + (made.length ? ` (Already created: ${made.join(', ')})` : '')); }
+      toast(`${made.length} draft PO(s) created: ${made.join(', ')}`); await showTab('po');
+    });
+  };
+  recalc();
+}
+
 // ---------- Purchase orders and supplier receiving (GRN) ----------
 async function renderPO(v) {
   const [pq, sq, lq] = await Promise.all([db.from('purchase_orders').select('*').order('created_at', {ascending: false}).limit(150), db.from('suppliers').select('*').order('name'), db.from('v_last_cost').select('product_id,unit_cost')]);
@@ -2127,6 +2213,7 @@ function poDialog(po, lines, ctx) {
       <td class="n">${draft ? `<input type="number" min="0" step="any" data-pq="${l.product_id}" value="${l.ordered_qty}" style="min-width:0;width:90px;text-align:right">` : fmt(l.ordered_qty)}</td>${draft ? '' : `<td class="n">${fmt(l.received_qty)}</td><td class="n">${fmt(bal)}</td>`}
       <td class="n">${draft ? `<input type="number" min="0" step="any" data-pc="${l.product_id}" value="${l.unit_cost ?? ''}" style="min-width:0;width:90px;text-align:right">` : (l.unit_cost == null ? '' : fmt(l.unit_cost))}</td><td class="n">${l.unit_cost == null ? '' : fmt(Number(l.ordered_qty) * Number(l.unit_cost))}</td></tr>`; }).join('')}
     <tr class="total"><td><b>Total</b></td><td class="n"><b>${fmt(lines.reduce((a, l) => a + Number(l.ordered_qty), 0))}</b></td>${draft ? '' : `<td class="n"><b>${fmt(lines.reduce((a, l) => a + Number(l.received_qty), 0))}</b></td><td></td>`}<td></td><td class="n"><b>${fmt(val)}</b></td></tr></tbody></table></div>
+    ${canRecv ? `<div class="row" style="margin-top:12px"><div><label>Expected delivery (change it when the supplier gives a new date)</label><input type="date" id="pdEta" value="${po.expected_date || ''}"></div><div><label>Reason (optional)</label><input type="text" id="pdEtaN" style="min-width:220px"></div><button class="btn alt" id="pdEtaSave">Update expected date</button></div>` : ''}
     <div id="grnBox"></div><div id="ovM"></div>
     <div class="row" style="margin-top:14px">${draft ? '<button class="btn" id="pdSave">Save changes</button><button class="btn" id="pdOrder">Mark as Ordered</button><button class="btn danger" id="pdCancel">Cancel PO</button>' : ''}
     ${canRecv ? '<button class="btn" id="pdRecv">Receive Goods</button>' : ''}${po.status === 'ordered' ? '<button class="btn danger" id="pdCancel">Cancel PO</button>' : ''}${po.status === 'partial' ? '<button class="btn danger" id="pdClose">Close PO (rest will not come)</button>' : ''}
@@ -2145,6 +2232,11 @@ function poDialog(po, lines, ctx) {
   if (po.status === 'ordered') $('#pdCancel').onclick = () => { if (confirm('Cancel this purchase order?')) act(() => status('cancel'), 'PO cancelled.'); };
   if (po.status === 'partial') $('#pdClose').onclick = () => { if (confirm('Close this PO? The quantity not yet received will no longer be counted as on order.')) act(() => status('close'), 'PO closed.'); };
   if (canRecv) $('#pdRecv').onclick = () => { ov.remove(); poReceiveDialog(po, lines); };
+  if (canRecv) $('#pdEtaSave').onclick = () => act(async () => {
+    if (!$('#pdEta').value) throw new Error('Choose the new expected date.');
+    const {error} = await db.rpc('po_set_eta', {p_po: po.id, p_date: $('#pdEta').value, p_note: $('#pdEtaN').value.trim() || null});
+    if (error) throw new Error(/po_set_eta/.test(error.message) && /function|schema cache/i.test(error.message) ? 'Run uol_po_eta.sql in the Supabase SQL Editor first.' : error.message);
+  }, 'Expected date updated. Planning now uses the new date.');
   if (!draft) (async () => {
     const r = await db.from('po_receipts').select('*').eq('po_id', po.id).order('created_at'); if (r.error || !r.data.length) return;
     const rl = await fetchAll((a, b) => db.from('po_receipt_lines').select('receipt_id,product_id,qty,batch_no,expiry_date').in('receipt_id', r.data.map(x => x.id)).order('id').range(a, b));
