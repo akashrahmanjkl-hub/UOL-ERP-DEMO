@@ -30,8 +30,8 @@ body{margin:0;color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,-apple-system,
 .side{width:238px;flex:none;position:sticky;top:0;height:100vh;overflow-y:auto;background:linear-gradient(180deg,#0b4a2a 0%,#0d5a33 100%);padding:14px 12px;display:flex;flex-direction:column;z-index:12;transition:margin .2s}
 .sb{display:flex;gap:10px;align-items:center;padding:2px 4px 14px}.sb img{height:46px;width:auto;background:#fff;border-radius:12px;padding:3px}
 .sb b{display:block;color:#fff;font-size:13px;line-height:1.25}.sb small{color:#9fd8bd;font-size:11px}
-nav#tabs{display:flex;flex-direction:column;gap:3px;flex:1}
-nav#tabs button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:transparent;border-radius:10px;padding:10px 12px;font-size:13.5px;font-weight:600;color:#d6efe3;cursor:pointer}
+nav#tabs{display:flex;flex-direction:column;gap:2px;flex:1}nav#tabs:before{content:"MAIN MENU";color:#9fd8bd;font-size:11px;font-weight:700;letter-spacing:1.4px;padding:2px 12px 8px}
+nav#tabs button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:transparent;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;color:#d6efe3;cursor:pointer}
 nav#tabs button:hover{background:rgba(255,255,255,.1)}nav#tabs button i{font-style:normal;width:20px;text-align:center}
 nav#tabs button.on{background:#2e9b4a;color:#fff;box-shadow:0 6px 14px -6px rgba(0,0,0,.45)}
 nav#tabs .car{margin-left:auto;font-size:11px;transition:transform .15s}.grp.open .car{transform:rotate(180deg)}
@@ -398,28 +398,15 @@ const TABS = [
   {id: 'master', label: 'Master Data', central: true, render: renderMaster},
   {id: 'audit', label: 'Audit Trail', admin: true, render: renderAudit}
 ];
-const NAV = [['dashboard'], ['Inventory', '📦', ['stock', 'opening', 'transfer', 'return', 'adjust', 'qcfail', 'stockdocs', 'stockops']], ['Indent', '📝', ['indent', 'plan', 'challan']],
-  ['Procurement', '🛒', ['reorder', 'import', 'po', 'planset']], ['Reports', '📈', ['sales', 'invmove', 'expiry', 'abc', 'health']], ['Settings', '⚙️', ['master']], ['audit']];
-const NAV_ICON = {dashboard: '📊', audit: '🕵️'};
-const navOpen = new Set(['Inventory', 'Indent', 'Procurement', 'Reports', 'Settings', 'More']);
-function buildTabs() {
-  const ok = TABS.filter(t => tabOk(t)), byId = new Map(ok.map(t => [t.id, t])), used = new Set();
-  const leaf = id => { const t = byId.get(id); if (!t) return ''; used.add(id); return `<button data-t="${id}">${NAV_ICON[id] ? `<i>${NAV_ICON[id]}</i>` : ''}${t.label}</button>`; };
-  let h = NAV.map(n => {
-    if (n.length === 1) return leaf(n[0]);
-    const items = n[2].map(leaf).join(''); if (!items) return '';
-    return `<div class="grp${navOpen.has(n[0]) ? ' open' : ''}" data-g="${n[0]}"><button class="gh"><i>${n[1]}</i>${n[0]}<span class="car">⌄</span></button><div class="gi">${items}</div></div>`;
-  }).join('');
-  const rest = ok.filter(t => !used.has(t.id)).map(t => leaf(t.id)).join('');   // any module not listed above still appears
-  if (rest) h += `<div class="grp" data-g="More"><button class="gh"><i>•</i>More<span class="car">⌄</span></button><div class="gi">${rest}</div></div>`;
-  $('#tabs').innerHTML = h;
+const NAV_ICON = {dashboard:'📊',stock:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',import:'🚢',health:'🩺',expiry:'⏳',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️'};
+function buildTabs() {   // flat list: every module, same order as before
+  $('#tabs').innerHTML = TABS.filter(t => tabOk(t)).map(t => `<button data-t="${t.id}"><i>${NAV_ICON[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button[data-t]').forEach(b => b.onclick = () => showTab(b.dataset.t));
-  $('#tabs').querySelectorAll('.gh').forEach(b => b.onclick = () => { const g = b.parentNode, n = g.dataset.g; g.classList.toggle('open'); g.classList.contains('open') ? navOpen.add(n) : navOpen.delete(n); });
   $('#hamb').onclick = () => document.body.classList.toggle(innerWidth > 900 ? 'nav-closed' : 'nav-open');
   $('#bell').onclick = () => showTab('dashboard');
 }
 function syncNav(id) {
-  $('#tabs').querySelectorAll('button[data-t]').forEach(b => { const on = b.dataset.t === id; b.classList.toggle('on', on); if (on && b.closest('.grp')) { b.closest('.grp').classList.add('open'); navOpen.add(b.closest('.grp').dataset.g); } });
+  $('#tabs').querySelectorAll('button[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === id));
   document.body.classList.remove('nav-open');
 }
 async function showTab(id) {
