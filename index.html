@@ -605,19 +605,34 @@ select 'done' as status;
 async function renderTestData(v) {
   const F = '2026-11-01', T = '2026-11-22';
   v.innerHTML = `<h2>🧪 Test Data</h2><p class="muted">Fills opening stock, sales (${F} to ${T}) and purchases with simple numbers so every module can be tested. Location, warehouse, sales point, product and supplier names are never changed.</p>
-  <div class="card"><h3>Step 1 — Clear old opening / sales / purchase data</h3><p class="muted">Run this once in <b>Supabase → SQL Editor</b> (the app cannot delete ledger rows). It keeps a backup copy of every table it clears.</p>
+  <div class="card"><h3>Step 1 — Clear old data (skip if you already ran it, or if the tables are already empty)</h3><p class="muted">Run this once in <b>Supabase → SQL Editor</b> (the app cannot delete ledger rows). It keeps a backup copy of every table it clears.</p>
   <textarea id="tdSql" readonly style="width:100%;height:150px;font:12px ui-monospace,Consolas,monospace">${esc(TD_SQL)}</textarea><div class="row" style="margin-top:8px"><button class="btn alt" id="tdCopy">Copy SQL</button></div></div>
-  <div class="card" style="margin-top:14px"><h3>Step 2 — Generate test numbers</h3>
-  <button class="btn" id="tdGo">Generate test data</button><div id="tdLog" style="margin-top:10px;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap"></div></div>
+  <div class="card" style="margin-top:14px"><h3>Step 2 — Generate test data for ALL modules</h3>
+  <button class="btn" id="tdGo">Generate test data for all modules</button><div id="tdLog" style="margin-top:10px;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap"></div></div>
+  <div class="card" style="margin-top:14px"><h3>Forecast walkthrough (live from the planner, for 8 sample products)</h3><p class="muted">Use after the data is generated. Shows how the planner turns sales into demand, reorder level and a suggested order. Low products are listed first.</p><button class="btn alt" id="tdFc">Show forecast walkthrough</button><div id="tdFcOut" style="margin-top:10px"></div></div>
   <div class="card" style="margin-top:14px"><h3>How the numbers are made (i = product position A→Z, d = day of November; "low" = every 7th product, i divisible by 7)</h3>
   <table style="min-width:0"><tbody>
   <tr><td><b>Opening stock</b> (dated ${F})</td><td>Warehouse: 2000 + (i mod 5)×500 · low products: 400<br>Sales point: 150 + (i mod 4)×25 · low products: 120</td></tr>
   <tr><td><b>Sales</b> (every sales point, every product, ${F} → ${T})</td><td>qty = 1 + (i mod 3) + (d mod 3) → always 1 to 5 per day</td></tr>
   <tr><td><b>Purchases</b> (one PO per supplier per wave; only products whose supplier exists in Master Data)</td><td>Wave 1: PO 3 Nov, received 6 Nov · Wave 2: PO 10 Nov, received 13 Nov · Wave 3: PO 18 Nov, <b>left ordered, not received</b> (test the receive flow)<br>Qty = 500 + (i mod 3)×100 · unit cost = 40 + (i mod 10)×5 · warehouse rotates · expiry rotates between 4 dates</td></tr>
+  <tr><td><b>Indents</b></td><td>4 indents (8, 15, 19, 21 Nov) at different sales points, 12 products each, qty 20–60 · first 2 received, last 2 left <b>pending</b></td></tr>
+  <tr><td><b>Delivery challans</b></td><td>3 challans (10, 16, 20 Nov), 10 products each, qty 15–30 · 2 received, 1 left <b>in transit</b></td></tr>
+  <tr><td><b>Transfer / Return</b></td><td>Warehouse→warehouse 100 units × 6 products on 12 Nov (received) and 20 Nov (in transit) · Return 5 units × 4 products on 17 Nov (received)</td></tr>
+  <tr><td><b>Adjustment / QC Fail / Count</b></td><td>+10 and −3 adjustments · QC fail 25 units at the warehouse, 2 at a sales point · physical count 2 units below system</td></tr>
   </tbody></table>
   <div class="row" style="margin-top:10px"><button class="btn alt" data-go="plan">Open Distribution &amp; Forecasting</button><button class="btn alt" data-go="reorder">Open Reorder Planning</button><button class="btn alt" data-go="dashboard">Open Dashboard</button></div></div>`;
   v.querySelectorAll('[data-go]').forEach(b => b.onclick = () => showTab(b.dataset.go));
   $('#tdCopy').onclick = async () => { try { await navigator.clipboard.writeText(TD_SQL); } catch (e) { $('#tdSql').select(); document.execCommand('copy'); } toast('SQL copied. Paste it in Supabase → SQL Editor and run it.'); };
+  $('#tdFc').onclick = async () => {
+    const o = $('#tdFcOut'); o.textContent = 'Loading…';
+    try {
+      try { Hub.invalidate(); } catch (e) {} const snap = await Hub.get(0);
+      const act = products.filter(p => p.is_active).slice().sort((a, b) => a.name.localeCompare(b.name)), sample = [...act.filter((p, i) => i % 7 === 0).slice(0, 4), ...act.filter((p, i) => i % 7 !== 0).slice(0, 4)];
+      const rows = sample.map(p => { const r = Engine.procure(p, snap), rl = Math.ceil((r.D || 0) * (r.L + r.safety)); return `<tr><td>${esc(p.name)}</td><td class="n">${(snap.rateProd.get(p.id) || 0).toFixed(1)}</td><td class="n">${(r.D || 0).toFixed(1)}</td><td class="n">${r.L}</td><td class="n">${r.safety}</td><td class="n">${fmt(rl)}</td><td class="n">${fmt(Math.round(r.pos))}</td><td class="n">${fmt(Math.round(r.qty || 0))}</td><td>${esc(r.status)}</td></tr>`; }).join('');
+      o.innerHTML = `<div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Product</th><th class="n">Actual sales/day (network)</th><th class="n">Forecast demand/day</th><th class="n">Lead + clearance days</th><th class="n">Safety days</th><th class="n">Reorder level = demand × (lead + safety)</th><th class="n">Stock position (warehouse + sales points + transit + on order)</th><th class="n">Suggested order qty</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <p class="muted">Flow: daily sales (1–22 Nov) → actual sales/day → forecast demand/day (with planning rules and season events applied) → stock position compared with the reorder level → suggested order. Change a rule in Planning Rules, or add a season event, then press the button again to see the numbers move.</p>`;
+    } catch (e) { o.innerHTML = `<div class="note err">${esc(e.message || e)}</div>`; }
+  };
   const log = m => { $('#tdLog').textContent += m + '\n'; };
   $('#tdGo').onclick = async () => {
     const btn = $('#tdGo'); $('#tdLog').textContent = ''; btn.disabled = true;
@@ -653,6 +668,38 @@ async function renderTestData(v) {
         if (w.rc) { const r = await db.rpc('receive_po', {p_po: id, p_date: w.rc, p_ref: 'TEST-' + w.tag, p_note: 'TEST DATA', p_lines: ps.map(p => ({product_id: p.id, qty: 500 + (idx.get(p.id) % 3) * 100, batch_no: `B-${w.tag}-${(idx.get(p.id) % 4) + 1}`, expiry_date: EXP[idx.get(p.id) % 4]}))}); if (r.error) throw new Error(`Receive ${c.data}: ${r.error.message}`); got++; }
         log(`  PO ${c.data} · ${s.name} → ${wh.name}${w.rc ? ' · received ' + w.rc : ' · ordered (open)'}`); g++; } }
       log(`✔ Purchases: ${made} POs created, ${got} received, ${made - got} left open` + (skipped ? ` · ${skipped} product(s) skipped (no matching supplier in Master Data)` : ''));
+      // 4) every other module: indents, challans, transfers, returns, adjustments, QC fail, physical count
+      const nS = sps.length, wh0 = whs[0], wh1 = whs[1] || null, EXD = {l: l => l};
+      const pick = (from, n, step = 1) => prods.filter((p, i) => i >= from && (i - from) % step === 0).slice(0, n), qL = (arr, f) => arr.map(p => ({product_id: p.id, qty: f(idx.get(p.id))}));
+      const rp = async (n, a) => { const r = await db.rpc(n, a); if (r.error) throw new Error(r.error.message); return r.data; };
+      const last = async t => { let r = await db.from(t).select('id').order('created_at', {ascending: false}).limit(1); if (r.error || !r.data.length) r = await db.from(t).select('id').order('id', {ascending: false}).limit(1); return r.data[0].id; };
+      const step = async (label, fn) => { try { await fn(); log('✔ ' + label); } catch (e) { log('✖ ' + label + ' — ' + (e.message || e)); } };
+      await step('Indents: 4 created (2 received, 2 left pending)', async () => {
+        const plan = [['2026-11-08', 1], ['2026-11-15', 1], ['2026-11-19', 0], ['2026-11-21', 0]];
+        for (const [k, [date, rc]] of plan.entries()) { const items = pick(k * 3, 12, 2), q = i => 20 + (i % 5) * 10;
+          const id = await rp('create_indent', {p_location_id: sps[k % nS].id, p_indent_date: date, p_odoo_ref: 'TEST-IND-' + (k + 1), p_lines: items.map(p => ({product_name: p.name, qty: q(idx.get(p.id))}))});
+          if (rc) await rp('receive_indent', {p_indent_id: id, p_source_warehouse_id: wh0.id, p_overrides: qL(items, q)}); } });
+      await step('Delivery challans: 3 created (2 received, 1 in transit)', async () => {
+        const plan = [['2026-11-10', 1], ['2026-11-16', 1], ['2026-11-20', 0]];
+        for (const [k, [date, rc]] of plan.entries()) { const lines = qL(pick(k * 4, 10), i => 15 + (i % 4) * 5);
+          await rp('create_challan', {p_from: wh0.id, p_to: sps[(4 + k) % nS].id, p_date: date, p_note: 'TEST DATA', p_lines: lines});
+          if (rc) await rp('receive_challan', {p_challan: await last('challans'), p_lines: lines, p_note: null}); } });
+      if (wh1) await step('Transfers: 2 warehouse transfers (1 received, 1 in transit)', async () => {
+        for (const [date, rc] of [['2026-11-12', 1], ['2026-11-20', 0]]) { const lines = qL(pick(rc ? 0 : 1, 6, 3), () => 100);
+          await rp('create_stock_transfer', {p_type: 'transfer', p_from: wh0.id, p_to: wh1.id, p_date: date, p_reason: 'Rebalancing between warehouses', p_note: 'TEST DATA', p_lines: lines});
+          if (rc) await rp('receive_stock_doc', {p_doc: await last('stock_docs'), p_lines: lines, p_note: null}); } });
+      await step('Returns: 1 sales point → warehouse (received)', async () => { const lines = qL(pick(2, 4, 3), () => 5);
+        await rp('create_stock_transfer', {p_type: 'return', p_from: sps[7 % nS].id, p_to: wh0.id, p_date: '2026-11-17', p_reason: 'Excess stock', p_note: 'TEST DATA', p_lines: lines});
+        await rp('receive_stock_doc', {p_doc: await last('stock_docs'), p_lines: lines, p_note: null}); });
+      await step('Adjustments: +10 found extra, −3 correction', async () => {
+        await rp('post_stock_adjustment', {p_type: 'adjustment', p_location: sps[8 % nS].id, p_date: '2026-11-14', p_reason: 'Found extra stock', p_note: 'TEST DATA', p_lines: qL(pick(1, 3, 5), () => 10)});
+        await rp('post_stock_adjustment', {p_type: 'adjustment', p_location: sps[9 % nS].id, p_date: '2026-11-15', p_reason: 'Stock correction', p_note: 'TEST DATA', p_lines: qL(pick(1, 3, 5), () => -3)}); });
+      await step('QC Fail: warehouse 25 units, sales point 2 units', async () => {
+        await rp('post_stock_adjustment', {p_type: 'damage', p_location: wh0.id, p_date: '2026-11-18', p_reason: 'QC failed', p_note: 'TEST DATA', p_lines: qL(pick(2, 3, 4), () => 25)});
+        await rp('post_stock_adjustment', {p_type: 'damage', p_location: sps[11 % nS].id, p_date: '2026-11-19', p_reason: 'Damaged', p_note: 'TEST DATA', p_lines: qL(pick(3, 2, 6), () => 2)}); });
+      await step('Physical count: 5 products counted 2 below system', async () => {
+        const ids = pick(0, 5, 3).map(p => p.id), lv = await db.from('v_live_stock').select('product_id,live_qty').eq('location_id', sps[10 % nS].id).in('product_id', ids); if (lv.error) throw lv.error;
+        await rp('post_stock_count', {p_location: sps[10 % nS].id, p_date: T, p_note: 'TEST DATA', p_lines: lv.data.map(r => ({product_id: r.product_id, counted_qty: Math.max(0, Math.floor(Number(r.live_qty)) - 2)}))}); });
       try { Hub.invalidate(); } catch (e) {}
       toast('Test data ready. Open any module to check.');
     } catch (e) { log('✖ ' + (e.message || e)); toast('Stopped: ' + (e.message || e), 'err'); }
