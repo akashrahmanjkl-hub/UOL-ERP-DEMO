@@ -608,17 +608,14 @@ async function renderTestData(v) {
   <div class="card"><h3>Step 1 — Clear old data (skip if you already ran it, or if the tables are already empty)</h3><p class="muted">Run this once in <b>Supabase → SQL Editor</b> (the app cannot delete ledger rows). It keeps a backup copy of every table it clears.</p>
   <textarea id="tdSql" readonly style="width:100%;height:150px;font:12px ui-monospace,Consolas,monospace">${esc(TD_SQL)}</textarea><div class="row" style="margin-top:8px"><button class="btn alt" id="tdCopy">Copy SQL</button></div></div>
   <div class="card" style="margin-top:14px"><h3>Step 2 — Generate test data for ALL modules</h3>
-  <button class="btn" id="tdGo">Generate test data for all modules</button><div id="tdLog" style="margin-top:10px;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap"></div></div>
+  <label>Random seed (same seed = same numbers; type another number for a different random set)</label><input type="number" id="tdSeed" value="20261122" style="max-width:200px;margin-bottom:8px"><br><button class="btn" id="tdGo">Generate test data for all modules</button><div id="tdLog" style="margin-top:10px;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap"></div></div>
   <div class="card" style="margin-top:14px"><h3>Forecast walkthrough (live from the planner, for 8 sample products)</h3><p class="muted">Use after the data is generated. Shows how the planner turns sales into demand, reorder level and a suggested order. Low products are listed first.</p><button class="btn alt" id="tdFc">Show forecast walkthrough</button><div id="tdFcOut" style="margin-top:10px"></div></div>
-  <div class="card" style="margin-top:14px"><h3>How the numbers are made (i = product position A→Z, d = day of November; "low" = every 7th product, i divisible by 7)</h3>
+  <div class="card" style="margin-top:14px"><h3>How the random numbers are made</h3>
   <table style="min-width:0"><tbody>
-  <tr><td><b>Opening stock</b> (dated ${F})</td><td>Warehouse: 2000 + (i mod 5)×500 · low products: 400<br>Sales point: 150 + (i mod 4)×25 · low products: 120</td></tr>
-  <tr><td><b>Sales</b> (every sales point, every product, ${F} → ${T})</td><td>qty = 1 + (i mod 3) + (d mod 3) → always 1 to 5 per day</td></tr>
-  <tr><td><b>Purchases</b> (one PO per supplier per wave; only products whose supplier exists in Master Data)</td><td>Wave 1: PO 3 Nov, received 6 Nov · Wave 2: PO 10 Nov, received 13 Nov · Wave 3: PO 18 Nov, <b>left ordered, not received</b> (test the receive flow)<br>Qty = 500 + (i mod 3)×100 · unit cost = 40 + (i mod 10)×5 · warehouse rotates · expiry rotates between 4 dates</td></tr>
-  <tr><td><b>Indents</b></td><td>4 indents (8, 15, 19, 21 Nov) at different sales points, 12 products each, qty 20–60 · first 2 received, last 2 left <b>pending</b></td></tr>
-  <tr><td><b>Delivery challans</b></td><td>3 challans (10, 16, 20 Nov), 10 products each, qty 15–30 · 2 received, 1 left <b>in transit</b></td></tr>
-  <tr><td><b>Transfer / Return</b></td><td>Warehouse→warehouse 100 units × 6 products on 12 Nov (received) and 20 Nov (in transit) · Return 5 units × 4 products on 17 Nov (received)</td></tr>
-  <tr><td><b>Adjustment / QC Fail / Count</b></td><td>+10 and −3 adjustments · QC fail 25 units at the warehouse, 2 at a sales point · physical count 2 units below system</td></tr>
+  <tr><td><b>Sales</b> (1–22 Nov)</td><td>Every product has its own demand level (fast / medium / slow / very slow) and its own trend (growing or falling). Every sales point has its own size, and about 8% of product–outlet pairs never sell. Each day is random (Poisson), Friday and Saturday are higher, ~10% of products get a 3-day promo spike. Rows are different for every location, product and day.</td></tr>
+  <tr><td><b>Opening stock</b> (1 Nov)</td><td>Sales point: enough to cover that outlet's sales plus a random 12–50 days of cover (15% of items only 2–6 days → low-stock cases). Warehouse: network demand × random 25–90 days (20% only 4–10 days), split randomly across the warehouses.</td></tr>
+  <tr><td><b>Purchases</b></td><td>Each supplier gets 3–4 POs on random days with a random ~65% of its products, quantity = 20–60 days of network demand, unit cost from the product's MRP (±5% per PO), random warehouse. POs whose delivery date is after 22 Nov, and ~20% of the rest, stay open; ~25% of received POs are partial.</td></tr>
+  <tr><td><b>Other modules</b></td><td>Indents (last 2 pending), challans (last 2 in transit), warehouse transfers, returns, adjustments, QC fail and physical counts — random products and quantities, always kept below the stock that really exists.</td></tr>
   </tbody></table>
   <div class="row" style="margin-top:10px"><button class="btn alt" data-go="plan">Open Distribution &amp; Forecasting</button><button class="btn alt" data-go="reorder">Open Reorder Planning</button><button class="btn alt" data-go="dashboard">Open Dashboard</button></div></div>`;
   v.querySelectorAll('[data-go]').forEach(b => b.onclick = () => showTab(b.dataset.go));
@@ -636,72 +633,104 @@ async function renderTestData(v) {
   const log = m => { $('#tdLog').textContent += m + '\n'; };
   $('#tdGo').onclick = async () => {
     const btn = $('#tdGo'); $('#tdLog').textContent = ''; btn.disabled = true;
+    let seed = (Number($('#tdSeed').value) || 20261122) | 0;
+    const rnd = () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    const rr = (a, b) => a + rnd() * (b - a), ri = (a, b) => Math.floor(rr(a, b + 1)), rt = (x, n) => Math.round(x / n) * n, pick1 = a => a[Math.floor(rnd() * a.length)];
+    const shuffle = a => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; };
+    const pois = m => { if (m <= 0) return 0; if (m > 30) return Math.max(0, Math.round(m + Math.sqrt(m) * (rnd() + rnd() + rnd() - 1.5) * 2)); const L = Math.exp(-m); let k = 0, p = 1; do { k++; p *= rnd(); } while (p > L); return k - 1; };
+    const log = m => { $('#tdLog').textContent += m + '\n'; };
     try {
       const cnt = async t => (await db.from(t).select('id', {count: 'exact', head: true})).count || 0;
       const [nl, ns, np] = await Promise.all([cnt('stock_ledger'), cnt('daily_sales'), cnt('purchase_orders')]);
-      if (nl || ns || np) throw new Error(`Old data still exists (ledger ${nl}, sales ${ns}, POs ${np}). Run Step 1 first, then reload this page.`);
-      const prods = products.filter(p => p.is_active).slice().sort((a, b) => a.name.localeCompare(b.name)), idx = new Map(prods.map((p, i) => [p.id, i]));
+      if (nl || ns || np) throw new Error(`Old data still exists (ledger ${nl}, sales ${ns}, POs ${np}). Run Step 1 (SQL) first, then reload this page.`);
+      const prods = products.filter(p => p.is_active).slice().sort((a, b) => a.name.localeCompare(b.name));
       const act = locations.filter(l => l.is_active !== false), whs = act.filter(l => l.type === 'warehouse'), sps = act.filter(l => l.type === 'sales_point');
       if (!prods.length || !whs.length || !sps.length) throw new Error('Need at least one active product, warehouse and sales point.');
-      const batch = async (table, rows, fn) => { for (let i = 0; i < rows.length; i += 500) { const r = await fn(rows.slice(i, i + 500)); if (r.error) throw r.error; } };
-      // 1) opening stock
-      const op = []; act.forEach(l => prods.forEach(p => { const i = idx.get(p.id), low = i % 7 === 0, q = l.type === 'warehouse' ? (low ? 400 : 2000 + (i % 5) * 500) : (low ? 120 : 150 + (i % 4) * 25); op.push({location_id: l.id, product_id: p.id, entry_date: F, entry_type: 'opening', qty: q}); }));
-      await batch('stock_ledger', op, r => db.from('stock_ledger').insert(r)); 
+      const F = '2026-11-01', T = '2026-11-22', dates = Array.from({length: 22}, (_, k) => addDays(F, k)), dayD = n => addDays(F, n - 1);
+      const batch = async (rows, fn) => { for (let i = 0; i < rows.length; i += 500) { const r = await fn(rows.slice(i, i + 500)); if (r.error) throw r.error; } };
+      // ---- demand model: every product / sales point / day is different ----
+      const base = new Map(prods.map(p => { const u = rnd(); return [p.id, {b: u < .15 ? rr(4, 9) : u < .6 ? rr(1.5, 4) : u < .9 ? rr(.4, 1.5) : rr(.1, .4), tr: rr(-.015, .03), spike: rnd() < .1 ? ri(5, 17) : -1}]; }));
+      const size = new Map(sps.map(l => [l.id, rr(.6, 1.5)])), mean = new Map(), dnet = new Map(), sold = new Map(), sl = [];
+      sps.forEach(l => prods.forEach(p => mean.set(l.id + '|' + p.id, rnd() < .08 ? 0 : base.get(p.id).b * size.get(l.id) * rr(.6, 1.4))));
+      sps.forEach(l => prods.forEach(p => { const k = l.id + '|' + p.id, m = mean.get(k), bp = base.get(p.id); let tot = 0; dnet.set(p.id, (dnet.get(p.id) || 0) + m);
+        if (m > 0) dates.forEach((date, di) => { const dow = new Date(date + 'T00:00:00Z').getUTCDay(), wf = dow === 5 ? 1.35 : dow === 6 ? 1.25 : 1, sp = bp.spike >= 0 && di >= bp.spike && di < bp.spike + 3 ? 2 : 1, q = pois(m * (1 + bp.tr * (di - 11)) * wf * sp); if (q > 0) { sl.push({location_id: l.id, product_id: p.id, sale_date: date, qty: q}); tot += q; } });
+        sold.set(k, tot); }));
+      // ---- 1) opening stock (random cover days; some products deliberately low) ----
+      const stock = new Map(), op = [], addOp = (loc, pid, q) => { q = Math.round(q); if (q > 0) { op.push({location_id: loc, product_id: pid, entry_date: F, entry_type: 'opening', qty: q}); stock.set(loc + '|' + pid, q); } };
+      sps.forEach(l => prods.forEach(p => { const k = l.id + '|' + p.id, m = mean.get(k), cover = rnd() < .15 ? rr(2, 6) : rr(12, 50); addOp(l.id, p.id, (sold.get(k) || 0) + (m > 0 ? m * cover : rnd() < .3 ? ri(1, 15) : 0)); stock.set(k, (stock.get(k) || 0) - (sold.get(k) || 0)); }));
+      prods.forEach(p => { const D = dnet.get(p.id), tot = D > 0 ? D * (rnd() < .2 ? rr(4, 10) : rr(25, 90)) : ri(100, 800), w = whs.map(() => rnd() < .05 ? 0 : rnd() + .2), ws = w.reduce((a, b) => a + b, 0) || 1; whs.forEach((l, i) => addOp(l.id, p.id, rt(tot * w[i] / ws, 10))); });
+      await batch(op, r => db.from('stock_ledger').insert(r));
       const ud = await db.from('locations').update({opening_date: F}).in('id', act.map(l => l.id)); if (ud.error) throw ud.error;
-      log(`✔ Opening stock: ${op.length} rows`);
-      // 2) sales
-      const sl = []; for (let d = 1; d <= 22; d++) { const date = addDays(F, d - 1); sps.forEach(l => prods.forEach(p => sl.push({location_id: l.id, product_id: p.id, sale_date: date, qty: 1 + (idx.get(p.id) % 3) + (d % 3)}))); }
-      await batch('daily_sales', sl, r => db.from('daily_sales').upsert(r, {onConflict: 'location_id,product_id,sale_date'}));
-      log(`✔ Sales: ${sl.length} rows (${F} → ${T})`);
-      // 3) purchases through the app's own PO functions
+      log(`✔ Opening stock: ${op.length} rows (different for every location and product)`);
+      // ---- 2) sales ----
+      await batch(sl, r => db.from('daily_sales').upsert(r, {onConflict: 'location_id,product_id,sale_date'}));
+      log(`✔ Sales: ${sl.length} rows (${F} → ${T}; weekends higher, trends, promo spikes, zero-sale days)`);
+      // ---- 3) purchases through the app's own PO functions ----
       const sq = await db.from('suppliers').select('*').eq('is_active', true); if (sq.error) throw sq.error;
       const supBy = new Map(sq.data.map(s => [norm(s.name), s])), groups = new Map();
       prods.forEach(p => { const s = p.supplier && supBy.get(norm(p.supplier)); if (s) { if (!groups.has(s.id)) groups.set(s.id, {s, ps: []}); groups.get(s.id).ps.push(p); } });
-      const skipped = prods.filter(p => !(p.supplier && supBy.get(norm(p.supplier)))).length, EXP = ['2027-01-31', '2027-06-30', '2027-12-31', '2028-06-30'];
-      const waves = [{po: '2026-11-03', rc: '2026-11-06', tag: 'W1'}, {po: '2026-11-10', rc: '2026-11-13', tag: 'W2'}, {po: '2026-11-18', rc: null, tag: 'W3'}];
-      let made = 0, got = 0, g = 0;
-      for (const w of waves) { let k = 0; for (const {s, ps} of groups.values()) {
-        const wh = whs[(k++ + waves.indexOf(w)) % whs.length], lines = ps.map(p => ({product_id: p.id, qty: 500 + (idx.get(p.id) % 3) * 100, unit_cost: 40 + (idx.get(p.id) % 10) * 5}));
-        const c = await db.rpc('create_po', {p_supplier: s.id, p_warehouse: wh.id, p_date: w.po, p_expected: w.rc || addDays(w.po, s.lead_time_days || 10), p_note: 'TEST DATA ' + w.tag, p_lines: lines}); if (c.error) throw new Error(`${s.name}: ${c.error.message}`);
-        const q = await db.from('purchase_orders').select('id').eq('po_no', c.data); const id = q.data && q.data[0] ? q.data[0].id : c.data;
+      const skipped = prods.filter(p => !(p.supplier && supBy.get(norm(p.supplier)))).length;
+      const cost = new Map(prods.map(p => [p.id, Math.round((Number(p.mrp) > 0 ? p.mrp * rr(.45, .7) : rr(60, 600)) * 100) / 100]));
+      let made = 0, got = 0, part = 0;
+      for (const {s, ps} of groups.values()) for (let k = ri(3, 4); k > 0; k--) {
+        const chosen = ps.filter(() => rnd() < .65); if (!chosen.length) continue;
+        const poDay = ri(1, 20), wh = pick1(whs), rcDay = poDay + ri(3, 9), receive = rcDay <= 22 && rnd() < .8;
+        const lines = chosen.map(p => ({product_id: p.id, qty: Math.max(10, rt((dnet.get(p.id) || ri(3, 15)) * rr(20, 60), 10)), unit_cost: Math.round(cost.get(p.id) * rr(.97, 1.05) * 100) / 100}));
+        const c = await db.rpc('create_po', {p_supplier: s.id, p_warehouse: wh.id, p_date: dayD(poDay), p_expected: addDays(dayD(poDay), s.lead_time_days || 10), p_note: 'TEST DATA', p_lines: lines}); if (c.error) throw new Error(`${s.name}: ${c.error.message}`);
+        const q = await db.from('purchase_orders').select('id').eq('po_no', c.data), id = q.data && q.data[0] ? q.data[0].id : c.data;
         const o = await db.rpc('po_set_status', {p_po: id, p_action: 'order'}); if (o.error) throw o.error; made++;
-        if (w.rc) { const r = await db.rpc('receive_po', {p_po: id, p_date: w.rc, p_ref: 'TEST-' + w.tag, p_note: 'TEST DATA', p_lines: ps.map(p => ({product_id: p.id, qty: 500 + (idx.get(p.id) % 3) * 100, batch_no: `B-${w.tag}-${(idx.get(p.id) % 4) + 1}`, expiry_date: EXP[idx.get(p.id) % 4]}))}); if (r.error) throw new Error(`Receive ${c.data}: ${r.error.message}`); got++; }
-        log(`  PO ${c.data} · ${s.name} → ${wh.name}${w.rc ? ' · received ' + w.rc : ' · ordered (open)'}`); g++; } }
-      log(`✔ Purchases: ${made} POs created, ${got} received, ${made - got} left open` + (skipped ? ` · ${skipped} product(s) skipped (no matching supplier in Master Data)` : ''));
-      // 4) every other module: indents, challans, transfers, returns, adjustments, QC fail, physical count
-      const nS = sps.length, wh0 = whs[0], wh1 = whs[1] || null, EXD = {l: l => l};
-      const pick = (from, n, step = 1) => prods.filter((p, i) => i >= from && (i - from) % step === 0).slice(0, n), qL = (arr, f) => arr.map(p => ({product_id: p.id, qty: f(idx.get(p.id))}));
+        let tag = 'ordered (open)';
+        if (receive) { const partial = rnd() < .25, rl = lines.map(l => ({product_id: l.product_id, qty: partial ? Math.round(l.qty * rr(.6, 1)) : l.qty, batch_no: `B${poDay}-${ri(100, 999)}`, expiry_date: addDays(T, ri(150, 900))})).filter(l => l.qty > 0);
+          const r = await db.rpc('receive_po', {p_po: id, p_date: dayD(rcDay), p_ref: 'TEST-' + c.data, p_note: 'TEST DATA', p_lines: rl}); if (r.error) throw new Error(`Receive ${c.data}: ${r.error.message}`);
+          rl.forEach(l => stock.set(wh.id + '|' + l.product_id, (stock.get(wh.id + '|' + l.product_id) || 0) + l.qty)); got++; tag = (partial ? 'partly ' : '') + 'received ' + dayD(rcDay); if (partial) part++; }
+        log(`  PO ${c.data} · ${s.name} → ${wh.name} · PO ${dayD(poDay)} · ${lines.length} products · ${tag}`);
+      }
+      log(`✔ Purchases: ${made} POs, ${got} received (${part} partial), ${made - got} open` + (skipped ? ` · ${skipped} product(s) skipped (no matching supplier in Master Data)` : ''));
+      // ---- 4) all other modules (random, and always within the stock that exists) ----
+      const sellable = l => prods.filter(p => mean.get(l.id + '|' + p.id) > 0), sk = (loc, p) => loc.id + '|' + p.id, have = (loc, p) => stock.get(sk(loc, p)) || 0;
+      const move = (loc, p, q) => stock.set(sk(loc, p), have(loc, p) + q);
+      const bestWh = items => whs.slice().sort((a, b) => items.reduce((t, p) => t + have(b, p), 0) - items.reduce((t, p) => t + have(a, p), 0))[0];
+      const mk = (src, items, want) => items.map(p => { let q = Math.min(Math.round(want(p)), Math.floor(have(src, p) * .3)); if (q >= 10) q = Math.floor(q / 5) * 5; return {p, q}; }).filter(x => x.q >= 1);
       const rp = async (n, a) => { const r = await db.rpc(n, a); if (r.error) throw new Error(r.error.message); return r.data; };
       const last = async t => { let r = await db.from(t).select('id').order('created_at', {ascending: false}).limit(1); if (r.error || !r.data.length) r = await db.from(t).select('id').order('id', {ascending: false}).limit(1); return r.data[0].id; };
-      const step = async (label, fn) => { try { await fn(); log('✔ ' + label); } catch (e) { log('✖ ' + label + ' — ' + (e.message || e)); } };
-      await step('Indents: 4 created (2 received, 2 left pending)', async () => {
-        const plan = [['2026-11-08', 1], ['2026-11-15', 1], ['2026-11-19', 0], ['2026-11-21', 0]];
-        for (const [k, [date, rc]] of plan.entries()) { const items = pick(k * 3, 12, 2), q = i => 20 + (i % 5) * 10;
-          const id = await rp('create_indent', {p_location_id: sps[k % nS].id, p_indent_date: date, p_odoo_ref: 'TEST-IND-' + (k + 1), p_lines: items.map(p => ({product_name: p.name, qty: q(idx.get(p.id))}))});
-          if (rc) await rp('receive_indent', {p_indent_id: id, p_source_warehouse_id: wh0.id, p_overrides: qL(items, q)}); } });
-      await step('Delivery challans: 3 created (2 received, 1 in transit)', async () => {
-        const plan = [['2026-11-10', 1], ['2026-11-16', 1], ['2026-11-20', 0]];
-        for (const [k, [date, rc]] of plan.entries()) { const lines = qL(pick(k * 4, 10), i => 15 + (i % 4) * 5);
-          await rp('create_challan', {p_from: wh0.id, p_to: sps[(4 + k) % nS].id, p_date: date, p_note: 'TEST DATA', p_lines: lines});
-          if (rc) await rp('receive_challan', {p_challan: await last('challans'), p_lines: lines, p_note: null}); } });
-      if (wh1) await step('Transfers: 2 warehouse transfers (1 received, 1 in transit)', async () => {
-        for (const [date, rc] of [['2026-11-12', 1], ['2026-11-20', 0]]) { const lines = qL(pick(rc ? 0 : 1, 6, 3), () => 100);
-          await rp('create_stock_transfer', {p_type: 'transfer', p_from: wh0.id, p_to: wh1.id, p_date: date, p_reason: 'Rebalancing between warehouses', p_note: 'TEST DATA', p_lines: lines});
-          if (rc) await rp('receive_stock_doc', {p_doc: await last('stock_docs'), p_lines: lines, p_note: null}); } });
-      await step('Returns: 1 sales point → warehouse (received)', async () => { const lines = qL(pick(2, 4, 3), () => 5);
-        await rp('create_stock_transfer', {p_type: 'return', p_from: sps[7 % nS].id, p_to: wh0.id, p_date: '2026-11-17', p_reason: 'Excess stock', p_note: 'TEST DATA', p_lines: lines});
-        await rp('receive_stock_doc', {p_doc: await last('stock_docs'), p_lines: lines, p_note: null}); });
-      await step('Adjustments: +10 found extra, −3 correction', async () => {
-        await rp('post_stock_adjustment', {p_type: 'adjustment', p_location: sps[8 % nS].id, p_date: '2026-11-14', p_reason: 'Found extra stock', p_note: 'TEST DATA', p_lines: qL(pick(1, 3, 5), () => 10)});
-        await rp('post_stock_adjustment', {p_type: 'adjustment', p_location: sps[9 % nS].id, p_date: '2026-11-15', p_reason: 'Stock correction', p_note: 'TEST DATA', p_lines: qL(pick(1, 3, 5), () => -3)}); });
-      await step('QC Fail: warehouse 25 units, sales point 2 units', async () => {
-        await rp('post_stock_adjustment', {p_type: 'damage', p_location: wh0.id, p_date: '2026-11-18', p_reason: 'QC failed', p_note: 'TEST DATA', p_lines: qL(pick(2, 3, 4), () => 25)});
-        await rp('post_stock_adjustment', {p_type: 'damage', p_location: sps[11 % nS].id, p_date: '2026-11-19', p_reason: 'Damaged', p_note: 'TEST DATA', p_lines: qL(pick(3, 2, 6), () => 2)}); });
-      await step('Physical count: 5 products counted 2 below system', async () => {
-        const ids = pick(0, 5, 3).map(p => p.id), lv = await db.from('v_live_stock').select('product_id,live_qty').eq('location_id', sps[10 % nS].id).in('product_id', ids); if (lv.error) throw lv.error;
-        await rp('post_stock_count', {p_location: sps[10 % nS].id, p_date: T, p_note: 'TEST DATA', p_lines: lv.data.map(r => ({product_id: r.product_id, counted_qty: Math.max(0, Math.floor(Number(r.live_qty)) - 2)}))}); });
+      const step = async (label, fn) => { try { const n = await fn(); log('✔ ' + label + (n != null ? ': ' + n : '')); } catch (e) { log('✖ ' + label + ' — ' + (e.message || e)); } };
+      const L = x => x.map(({p, q}) => ({product_id: p.id, qty: q}));
+      await step('Indents (received + pending)', async () => { let n = 0, pend = 0; const ls = shuffle(sps).slice(0, Math.min(6, sps.length));
+        for (const [k, l] of ls.entries()) { const rc = k < ls.length - 2, items = shuffle(sellable(l)).slice(0, ri(10, 25)), wh = bestWh(items), ln = mk(wh, items, p => Math.max(5, rt(mean.get(l.id + '|' + p.id) * rr(8, 20), 5))); if (!ln.length) continue;
+          const id = await rp('create_indent', {p_location_id: l.id, p_indent_date: dayD(rc ? ri(5, 17) : ri(19, 21)), p_odoo_ref: 'TEST-IND-' + (k + 1), p_lines: ln.map(x => ({product_name: x.p.name, qty: x.q}))}); n++;
+          if (rc) { await rp('receive_indent', {p_indent_id: id, p_source_warehouse_id: wh.id, p_overrides: L(ln)}); ln.forEach(x => { move(wh, x.p, -x.q); move(l, x.p, x.q); }); } else pend++; }
+        return `${n} created, ${pend} pending`; });
+      await step('Delivery challans (received + in transit)', async () => { let n = 0; const ls = shuffle(sps).slice(0, Math.min(5, sps.length));
+        for (const [k, l] of ls.entries()) { const rc = k < ls.length - 2, items = shuffle(sellable(l)).slice(0, ri(8, 20)), wh = bestWh(items), ln = mk(wh, items, p => Math.max(5, rt(mean.get(l.id + '|' + p.id) * rr(7, 18), 5))); if (!ln.length) continue;
+          await rp('create_challan', {p_from: wh.id, p_to: l.id, p_date: dayD(rc ? ri(8, 18) : ri(19, 21)), p_note: 'TEST DATA', p_lines: L(ln)}); n++;
+          if (rc) await rp('receive_challan', {p_challan: await last('challans'), p_lines: L(ln), p_note: null});
+          ln.forEach(x => { move(wh, x.p, -x.q); if (rc) move(l, x.p, x.q); }); }
+        return `${n} created`; });
+      if (whs.length > 1) await step('Warehouse transfers (received + in transit)', async () => { let n = 0;
+        for (let k = 0; k < 3; k++) { const src = pick1(whs), dst = pick1(whs.filter(w => w !== src)), rc = k < 2, ln = mk(src, shuffle(prods).slice(0, ri(5, 10)), p => have(src, p) * rr(.08, .2)); if (!ln.length) continue;
+          await rp('create_stock_transfer', {p_type: 'transfer', p_from: src.id, p_to: dst.id, p_date: dayD(rc ? ri(10, 17) : ri(19, 21)), p_reason: 'Rebalancing between warehouses', p_note: 'TEST DATA', p_lines: L(ln)});
+          if (rc) await rp('receive_stock_doc', {p_doc: await last('stock_docs'), p_lines: L(ln), p_note: null});
+          ln.forEach(x => { move(src, x.p, -x.q); if (rc) move(dst, x.p, x.q); }); n++; }
+        return `${n} created`; });
+      await step('Returns (sales point → warehouse, received)', async () => { let n = 0;
+        for (const l of shuffle(sps).slice(0, Math.min(2, sps.length))) { const wh = pick1(whs), ln = shuffle(prods.filter(p => have(l, p) >= 10)).slice(0, ri(3, 6)).map(p => ({p, q: Math.max(1, Math.floor(have(l, p) * rr(.05, .15)))})); if (!ln.length) continue;
+          await rp('create_stock_transfer', {p_type: 'return', p_from: l.id, p_to: wh.id, p_date: dayD(ri(14, 20)), p_reason: pick1(['Excess stock', 'Near expiry', 'Damaged / defective']), p_note: 'TEST DATA', p_lines: L(ln)});
+          await rp('receive_stock_doc', {p_doc: await last('stock_docs'), p_lines: L(ln), p_note: null}); ln.forEach(x => { move(l, x.p, -x.q); move(wh, x.p, x.q); }); n++; }
+        return `${n} created`; });
+      await step('Adjustments (+ / −)', async () => { let n = 0;
+        for (const plus of [true, false, false]) { const l = pick1(sps), ln = shuffle(prods).slice(0, ri(3, 5)).map(p => ({p, q: plus ? ri(2, 12) : Math.min(ri(1, 6), Math.floor(have(l, p) * .3))})).filter(x => x.q >= 1); if (!ln.length) continue;
+          await rp('post_stock_adjustment', {p_type: 'adjustment', p_location: l.id, p_date: dayD(ri(8, 20)), p_reason: plus ? 'Found extra stock' : 'Stock correction', p_note: 'TEST DATA', p_lines: ln.map(x => ({product_id: x.p.id, qty: plus ? x.q : -x.q}))}); ln.forEach(x => move(l, x.p, plus ? x.q : -x.q)); n++; }
+        return `${n} posted`; });
+      await step('QC Fail', async () => { let n = 0;
+        for (const l of [pick1(whs), pick1(whs), pick1(sps)]) { const ln = shuffle(prods).slice(0, ri(2, 4)).map(p => ({p, q: Math.min(l.type === 'warehouse' ? ri(5, 40) : ri(1, 3), Math.floor(have(l, p) * .3))})).filter(x => x.q >= 1); if (!ln.length) continue;
+          await rp('post_stock_adjustment', {p_type: 'damage', p_location: l.id, p_date: dayD(ri(10, 21)), p_reason: pick1(['QC failed', 'Damaged', 'Expired']), p_note: 'TEST DATA', p_lines: L(ln)}); ln.forEach(x => move(l, x.p, -x.q)); n++; }
+        return `${n} posted`; });
+      await step('Physical counts (some match, some differ)', async () => { let n = 0;
+        for (const l of shuffle(sps).slice(0, Math.min(2, sps.length))) { const ids = shuffle(sellable(l)).slice(0, 5).map(p => p.id), lv = await db.from('v_live_stock').select('product_id,live_qty').eq('location_id', l.id).in('product_id', ids); if (lv.error) throw lv.error; if (!lv.data.length) continue;
+          await rp('post_stock_count', {p_location: l.id, p_date: T, p_note: 'TEST DATA', p_lines: lv.data.map(r => ({product_id: r.product_id, counted_qty: Math.max(0, Math.floor(Number(r.live_qty)) + pick1([-4, -2, -1, 0, 0, 1, 2]))}))}); n++; }
+        return `${n} posted`; });
       try { Hub.invalidate(); } catch (e) {}
-      toast('Test data ready. Open any module to check.');
+      toast('Random test data ready. Open any module to check.');
     } catch (e) { log('✖ ' + (e.message || e)); toast('Stopped: ' + (e.message || e), 'err'); }
     btn.disabled = false;
   };
