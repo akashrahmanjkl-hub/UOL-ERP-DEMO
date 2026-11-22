@@ -180,16 +180,13 @@ function makeClient(role, locationId) {
     global: {headers: {'x-demo-role': role, 'x-demo-location': locationId || ''}}
   });
 }
-async function fetchAll(build) {
-  let out = [], from = 0; const step = 1000;
-  for (;;) {
-    const {data, error} = await build(from, from + step - 1);
-    if (error) throw error;
-    out = out.concat(data);
-    if (data.length < step) break;
-    from += step;
+async function fetchAll(build) {   // pages of 1000 rows; after a full first page the next pages are requested four at a time
+  const step = 1000, first = await build(0, step - 1); if (first.error) throw first.error;
+  let out = first.data; if (out.length < step) return out;
+  for (let from = step; ; from += 4 * step) {
+    const res = await Promise.all([0, 1, 2, 3].map(i => build(from + i * step, from + (i + 1) * step - 1)));
+    for (const r of res) { if (r.error) throw r.error; out = out.concat(r.data); if (r.data.length < step) return out; }
   }
-  return out;
 }
 function toast(msg, type = 'ok') {
   const t = $('#toast'); t.textContent = msg; t.className = 'show ' + type;
@@ -326,14 +323,12 @@ function buildLoginAs() {
 async function applySession() {
   const [role, loc] = $('#loginAs').value.split('|');
   session = {role, locationId: loc || null};
-  db = makeClient(role, session.locationId);
+  db = makeClient(role, session.locationId); dcReset();
   try {
-    const l = await db.from('locations').select('*').eq('is_active', true).order('type').order('name');
+    const [l, p] = await Promise.all([db.from('locations').select('*').eq('is_active', true).order('type').order('name'), db.from('products').select('*').order('name'), loadFcSettings()]);
     if (l.error) throw l.error; locations = l.data;
-    const p = await db.from('products').select('*').order('name');
     if (p.error) throw p.error; products = p.data;
   } catch (e) { toast(e.message, 'err'); return; }
-  await loadFcSettings();
   buildTabs();
   const visible = TABS.filter(t => tabOk(t));
   if (!visible.some(t => t.id === currentTab)) currentTab = 'dashboard';
@@ -370,7 +365,7 @@ function buildTabs() {
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
 async function showTab(id) {
-  currentTab = id; clearInterval(liveTimer);
+  currentTab = id; clearInterval(liveTimer); DC.at = 0;
   $('#tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === id));
   const v = $('#view'); v.innerHTML = loading;
   try { await TABS.find(t => t.id === id).render(v); }
@@ -427,6 +422,19 @@ async function fcHealth(el) {
 const FC_TABS = ['dashboard', 'plan', 'reorder', 'import'];
 let liveTimer = null, liveVer = null;
 const dataVersion = async () => { try { const r = await db.rpc('data_version'); return r.error ? null : r.data; } catch (e) { return null; } };
+// ---------- speed: results shared by all screens while the data has not changed ----------
+const DC = {ver: null, at: 0, map: new Map()};
+function dcReset() { DC.map.clear(); DC.ver = null; DC.at = 0; }
+async function dcSync() {
+  if (Date.now() - DC.at < 4000) return;
+  const v = await dataVersion(); DC.at = Date.now();
+  if (v == null || v !== DC.ver) { DC.map.clear(); DC.ver = v; }
+}
+async function dc(key, loader) {
+  await dcSync();
+  if (!DC.map.has(key)) DC.map.set(key, loader().catch(e => { DC.map.delete(key); throw e; }));
+  return DC.map.get(key);
+}
 async function liveWatch(id) {
   clearInterval(liveTimer); liveVer = await dataVersion(); if (liveVer == null) return;
   liveTimer = setInterval(async () => {
@@ -439,12 +447,14 @@ async function liveWatch(id) {
 }
 
 async function liveStock(locIds) {
-  return fetchAll((a, b) => {
+  return dc('ls|' + (locIds ? locIds.join(',') : 'all'), () => fetchAll((a, b) => {
     let q = db.from('v_live_stock').select('location_id,location_type,product_id,live_qty');
     if (locIds) q = q.in('location_id', locIds);
     return q.order('location_id').order('product_id').range(a, b);
-  });
+  }));
 }
+// sales added up inside the database (one row per sales point x product), not thousands of daily rows
+const salesTotals = (since, locId) => rpcAll('sales_sum', {p_from: since, p_loc: locId || null}, 'location_id', 'product_id');
 async function salesSince(since, locId) {
   return fetchAll((a, b) => {
     let q = db.from('daily_sales').select('location_id,product_id,qty,sale_date').gte('sale_date', since);
@@ -459,7 +469,7 @@ const cover = (stock, s30) => s30 > 0 ? Math.round(stock / (s30 / WINDOW_DAYS)) 
 // =============================== DASHBOARD ===============================
 async function renderDashboard(v) {
   const since = addDays(today(), -(WINDOW_DAYS - 1));
-  const [stock, sales] = await Promise.all([liveStock(), salesSince(since)]);
+  const [stock, sales] = await Promise.all([liveStock(), salesTotals(since)]);
   const unitsByLoc = sumBy(stock, 'location_id', 'live_qty');
   const salesByLoc = sumBy(sales, 'location_id', 'qty');
   const sps = locations.filter(l => l.type === 'sales_point');
@@ -526,7 +536,7 @@ async function renderStock(v) {
     const loc = locations.find(l => l.id === sel);
     const isSP = !merged && loc && loc.type === 'sales_point';
     const stock = await liveStock(ids);
-    const s30 = isSP ? sumBy(await salesSince(addDays(today(), -(WINDOW_DAYS - 1)), sel), 'product_id', 'qty') : new Map();
+    const s30 = isSP ? sumBy(await salesTotals(addDays(today(), -(WINDOW_DAYS - 1)), sel), 'product_id', 'qty') : new Map();
     const byProd = new Map(); stock.forEach(r => { const o = byProd.get(r.product_id) || {}; o[r.location_id] = Number(r.live_qty); byProd.set(r.product_id, o); });
     const rows = products.filter(p => p.is_active).map(p => {
       const o = byProd.get(p.id) || {}; const total = ids.reduce((s, i) => s + (o[i] || 0), 0);
@@ -907,9 +917,13 @@ function bulkIndent(v, sps) {
 // Supply = ceil(avg daily sales x (delivery gap + buffer) - current stock); when warehouse stock is short it is shared by sales rate.
 // ---------- Phase 3 helpers: ABC, buffer rules, seasonal events ----------
 const ABC_DAYS = 90, CLS_BADGE = {A: 'b-give', B: 'b-partial', C: 'b-dispatched', X: 'b-cancelled'};
+const RPC_CACHED = new Set(['forecast_live', 'sales_agg', 'sales_coverage', 'sales_sum']);
 async function rpcAll(fn, args, ...cols) {
-  try { return await fetchAll((a, b) => { let q = db.rpc(fn, args); cols.forEach(c => q = q.order(c)); return q.range(a, b); }); }
-  catch (e) { throw new Error(['42P01', 'PGRST205', 'PGRST202'].includes(e.code) ? 'Run uol_step4_forecasting.sql in the Supabase SQL Editor first.' : (e.message || e)); }
+  const run = async () => {
+    try { return await fetchAll((a, b) => { let q = db.rpc(fn, args); cols.forEach(c => q = q.order(c)); return q.range(a, b); }); }
+    catch (e) { throw new Error(['42P01', 'PGRST205', 'PGRST202'].includes(e.code) ? `The database function "${fn}" is missing. Run the latest SQL scripts (uol_live_forecast_engine.sql, then uol_performance.sql) in the Supabase SQL Editor.` : (e.message || e)); }
+  };
+  return RPC_CACHED.has(fn) ? dc(`${fn}|${JSON.stringify(args)}`, run) : run();
 }
 function abcCompute(qtyMap, aCut, bCut) {
   const act = products.filter(p => p.is_active), useVal = act.some(p => Number(p.mrp) > 0);
