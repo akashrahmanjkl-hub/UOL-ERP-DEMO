@@ -401,7 +401,7 @@ const TABS = [
 const NAV = [['dashboard'], ['Inventory', '📦', ['stock', 'opening', 'transfer', 'return', 'adjust', 'qcfail', 'stockdocs', 'stockops']], ['Indent', '📝', ['indent', 'plan', 'challan']],
   ['Procurement', '🛒', ['reorder', 'import', 'po', 'planset']], ['Reports', '📈', ['sales', 'invmove', 'expiry', 'abc', 'health']], ['Settings', '⚙️', ['master']], ['audit']];
 const NAV_ICON = {dashboard: '📊', audit: '🕵️'};
-const navOpen = new Set(['Inventory']);
+const navOpen = new Set(['Inventory', 'Indent', 'Procurement', 'Reports', 'Settings', 'More']);
 function buildTabs() {
   const ok = TABS.filter(t => tabOk(t)), byId = new Map(ok.map(t => [t.id, t])), used = new Set();
   const leaf = id => { const t = byId.get(id); if (!t) return ''; used.add(id); return `<button data-t="${id}">${NAV_ICON[id] ? `<i>${NAV_ICON[id]}</i>` : ''}${t.label}</button>`; };
