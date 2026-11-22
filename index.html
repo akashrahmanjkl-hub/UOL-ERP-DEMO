@@ -123,6 +123,7 @@ tr.total td{font-weight:800;background:#e8f6ee!important;color:var(--deep);borde
 .login-card .login-logo{width:230px;max-width:80%;height:auto;margin:6px auto 4px;display:block}
 .login-card label,.login-card input{text-align:left}
 .login-card input{width:100%}
+#tabs button,.btn,.mini,.badge{user-select:none;-webkit-user-select:none}
 </style>
 </head>
 <body>
@@ -364,18 +365,43 @@ function buildTabs() {
     .map(t => `<button data-t="${t.id}"><i>${({dashboard:'📊',live:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',import:'🚢',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️'})[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 }
+let renderSeq = 0;   // every page change gets a number; a slower, older page can never draw over a newer one
+function friendlyError(e, id) {
+  const raw = String((e && e.message) || e); let title = 'This page could not be loaded', hint = 'Please try again. If it keeps happening, tell the admin and mention the time shown below.';
+  if (/Failed to fetch|NetworkError|Load failed/i.test(raw)) { title = 'No connection to the database'; hint = 'Check your internet connection and try again.'; }
+  else if (/statement timeout|canceling statement/i.test(raw)) { title = 'The database took too long to answer'; hint = 'Please try again in a moment. If it keeps happening, the admin should check the database speed.'; }
+  else if (/Run uol_|Run the latest SQL|is missing|schema cache|Could not find the (table|function)/i.test(raw)) { title = 'Database setup is not complete'; hint = raw; }
+  else if (/is null|is undefined|Cannot read|can't access/i.test(raw)) hint = 'The page changed while it was loading. Please try again.';
+  return `<div class="card" style="max-width:680px"><h3 style="margin-top:0">${esc(title)}</h3><p class="sub">${esc(hint)}</p><div class="row"><button class="btn" id="errRetry">Try again</button></div>
+    <details style="margin-top:12px"><summary class="muted" style="cursor:pointer">Technical details</summary><pre style="white-space:pre-wrap;font-size:12px;background:#f3f4f6;padding:10px;border-radius:8px;margin-top:8px">${esc(raw)}\n${new Date().toLocaleString('en-GB', {timeZone: TZ})} · ${esc(id)}</pre></details></div>`;
+}
 async function showTab(id) {
+  const my = ++renderSeq, live = () => my === renderSeq;
   currentTab = id; clearInterval(liveTimer); DC.at = 0;
   $('#tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === id));
   const v = $('#view'); v.innerHTML = loading;
-  try { await TABS.find(t => t.id === id).render(v); }
-  catch (e) { v.innerHTML = `<div class="card"><div class="note err">${esc(e.message || e)}</div></div>`; return; }
+  // the page code gets a guarded handle: once a newer page has started, everything the old one still tries to draw is ignored
+  const guarded = new Proxy(v, {
+    get: (t, k) => { const x = t[k]; return typeof x === 'function' ? (...a) => (live() ? x.apply(t, a) : undefined) : x; },
+    set: (t, k, val) => { if (live()) t[k] = val; return true; }
+  });
+  try { await TABS.find(t => t.id === id).render(guarded); }
+  catch (e) {
+    if (!live()) return;   // an older page failing because we already moved on is not an error for the user
+    console.error(e); v.innerHTML = friendlyError(e, id); const r = $('#errRetry'); if (r) r.onclick = () => showTab(id); return;
+  }
+  if (!live()) return;
   if (FC_TABS.includes(id) && isCentral()) {
     v.insertAdjacentHTML('afterbegin', '<div id="fcH"></div>');
     fcHealth($('#fcH')).catch(() => { const h = $('#fcH'); if (h) h.remove(); });
     liveWatch(id);
   }
 }
+// leftovers of a page the user has already left must not show raw technical errors
+window.addEventListener('unhandledrejection', e => {
+  const m = String((e.reason && e.reason.message) || e.reason || ''); console.error(e.reason); e.preventDefault();
+  if (!/is null|is undefined|Cannot read|can't access|reading '/i.test(m)) toast('Something went wrong. Please try again.', 'err');
+});
 
 // ---------- data helpers ----------
 const WINDOW_DAYS = 30;
@@ -436,10 +462,10 @@ async function dc(key, loader) {
   return DC.map.get(key);
 }
 async function liveWatch(id) {
-  clearInterval(liveTimer); liveVer = await dataVersion(); if (liveVer == null) return;
+  const seq = renderSeq; clearInterval(liveTimer); liveVer = await dataVersion(); if (liveVer == null || seq !== renderSeq) return;
   liveTimer = setInterval(async () => {
-    if (currentTab !== id || document.hidden) return;
-    const nv = await dataVersion(); if (nv == null || nv === liveVer) return;
+    if (currentTab !== id || seq !== renderSeq || document.hidden) return;
+    const nv = await dataVersion(); if (nv == null || nv === liveVer || seq !== renderSeq) return;
     const ae = document.activeElement, busy = $('#ov') || (ae && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ae.tagName) && $('#view').contains(ae));
     if (busy) { if (!$('#fcLive')) $('#view').insertAdjacentHTML('afterbegin', `<div id="fcLive" class="note warn" style="margin:0 0 12px">New data has arrived. <button class="mini" id="fcLiveBtn">Refresh forecast</button></div>`), $('#fcLiveBtn').onclick = () => showTab(id); return; }
     liveVer = nv; await showTab(id); toast('New data arrived: forecast refreshed.');
