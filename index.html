@@ -396,9 +396,10 @@ const TABS = [
   {id: 'stockops', label: 'Stock Operations', central: true, render: v => stockOps(v, 'cnt')},
   {id: 'health', label: 'Data Health Check', central: true, render: renderHealth},
   {id: 'master', label: 'Master Data', central: true, render: renderMaster},
-  {id: 'audit', label: 'Audit Trail', admin: true, render: renderAudit}
+  {id: 'audit', label: 'Audit Trail', admin: true, render: renderAudit},
+  {id: 'testdata', label: 'Test Data', admin: true, render: renderTestData}   // testing helper - delete this line to remove the tab
 ];
-const NAV_ICON = {dashboard:'📊',stock:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',import:'🚢',health:'🩺',expiry:'⏳',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️'};
+const NAV_ICON = {dashboard:'📊',stock:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',import:'🚢',health:'🩺',expiry:'⏳',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️',testdata:'🧪'};
 function buildTabs() {   // flat list: every module, same order as before
   $('#tabs').innerHTML = TABS.filter(t => tabOk(t)).map(t => `<button data-t="${t.id}"><i>${NAV_ICON[t.id] || '•'}</i>${t.label}</button>`).join('');
   $('#tabs').querySelectorAll('button[data-t]').forEach(b => b.onclick = () => showTab(b.dataset.t));
@@ -575,6 +576,88 @@ function dBars(items) {
   items.forEach((it, i) => { const cx = L + (W - L) / n * (i + .5), h = (H - T - B) * it.val / mx, nm = it.label.length > 14 ? it.label.slice(0, 13) + '…' : it.label;
     g += `<rect x="${cx - bw / 2}" y="${H - B - h}" width="${bw}" height="${h}" rx="3" fill="${COL[i % 6]}"><title>${esc(it.label)}: ${dTk(it.val)}</title></rect><text x="${cx}" y="${H - B + 15}" text-anchor="middle" font-size="10" font-weight="600" fill="#12281f">${esc(nm)}</text><text x="${cx}" y="${H - B + 29}" text-anchor="middle" font-size="10" fill="#587068">${dTk(it.val)}</text>`; });
   return `<svg viewBox="0 0 ${W} ${H}">${g}</svg>`;
+}
+
+
+// ================================ TEST DATA (testing helper; remove the TABS line + this block when testing is over)
+const TD_SQL = `-- STEP 1 - run once in Supabase > SQL Editor.
+-- Deletes ONLY transaction data (opening stock, sales, purchases and everything that hangs off the stock ledger).
+-- KEEPS: locations, warehouses, sales points, products, suppliers, planning rules, season events, users/profiles, audit log.
+-- This cannot be undone. Backup copies are saved first as bak_<table>_<date>.
+do $$
+declare t text; d text := to_char(now(),'YYYYMMDD_HH24MI');
+begin
+  foreach t in array array['daily_sales','stock_ledger','stock_batches','po_receipt_lines','po_receipts','po_lines','purchase_orders',
+                           'challan_lines','challans','indent_lines','indents','stock_doc_lines','stock_docs']
+  loop
+    if to_regclass('public.'||t) is not null then
+      execute format('create table public.%I as select * from public.%I', 'bak_'||t||'_'||d, t);
+    end if;
+  end loop;
+end $$;
+
+truncate table daily_sales, stock_ledger, stock_batches, po_receipt_lines, po_receipts, po_lines, purchase_orders,
+               challan_lines, challans, indent_lines, indents, stock_doc_lines, stock_docs cascade;
+
+update locations set opening_date = null;   -- lets Opening Stock be entered again
+select 'done' as status;
+`;
+async function renderTestData(v) {
+  const F = '2026-11-01', T = '2026-11-22';
+  v.innerHTML = `<h2>🧪 Test Data</h2><p class="muted">Fills opening stock, sales (${F} to ${T}) and purchases with simple numbers so every module can be tested. Location, warehouse, sales point, product and supplier names are never changed.</p>
+  <div class="card"><h3>Step 1 — Clear old opening / sales / purchase data</h3><p class="muted">Run this once in <b>Supabase → SQL Editor</b> (the app cannot delete ledger rows). It keeps a backup copy of every table it clears.</p>
+  <textarea id="tdSql" readonly style="width:100%;height:150px;font:12px ui-monospace,Consolas,monospace">${esc(TD_SQL)}</textarea><div class="row" style="margin-top:8px"><button class="btn alt" id="tdCopy">Copy SQL</button></div></div>
+  <div class="card" style="margin-top:14px"><h3>Step 2 — Generate test numbers</h3>
+  <button class="btn" id="tdGo">Generate test data</button><div id="tdLog" style="margin-top:10px;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap"></div></div>
+  <div class="card" style="margin-top:14px"><h3>How the numbers are made (i = product position A→Z, d = day of November; "low" = every 7th product, i divisible by 7)</h3>
+  <table style="min-width:0"><tbody>
+  <tr><td><b>Opening stock</b> (dated ${F})</td><td>Warehouse: 2000 + (i mod 5)×500 · low products: 400<br>Sales point: 150 + (i mod 4)×25 · low products: 120</td></tr>
+  <tr><td><b>Sales</b> (every sales point, every product, ${F} → ${T})</td><td>qty = 1 + (i mod 3) + (d mod 3) → always 1 to 5 per day</td></tr>
+  <tr><td><b>Purchases</b> (one PO per supplier per wave; only products whose supplier exists in Master Data)</td><td>Wave 1: PO 3 Nov, received 6 Nov · Wave 2: PO 10 Nov, received 13 Nov · Wave 3: PO 18 Nov, <b>left ordered, not received</b> (test the receive flow)<br>Qty = 500 + (i mod 3)×100 · unit cost = 40 + (i mod 10)×5 · warehouse rotates · expiry rotates between 4 dates</td></tr>
+  </tbody></table>
+  <div class="row" style="margin-top:10px"><button class="btn alt" data-go="plan">Open Distribution &amp; Forecasting</button><button class="btn alt" data-go="reorder">Open Reorder Planning</button><button class="btn alt" data-go="dashboard">Open Dashboard</button></div></div>`;
+  v.querySelectorAll('[data-go]').forEach(b => b.onclick = () => showTab(b.dataset.go));
+  $('#tdCopy').onclick = async () => { try { await navigator.clipboard.writeText(TD_SQL); } catch (e) { $('#tdSql').select(); document.execCommand('copy'); } toast('SQL copied. Paste it in Supabase → SQL Editor and run it.'); };
+  const log = m => { $('#tdLog').textContent += m + '\n'; };
+  $('#tdGo').onclick = async () => {
+    const btn = $('#tdGo'); $('#tdLog').textContent = ''; btn.disabled = true;
+    try {
+      const cnt = async t => (await db.from(t).select('id', {count: 'exact', head: true})).count || 0;
+      const [nl, ns, np] = await Promise.all([cnt('stock_ledger'), cnt('daily_sales'), cnt('purchase_orders')]);
+      if (nl || ns || np) throw new Error(`Old data still exists (ledger ${nl}, sales ${ns}, POs ${np}). Run Step 1 first, then reload this page.`);
+      const prods = products.filter(p => p.is_active).slice().sort((a, b) => a.name.localeCompare(b.name)), idx = new Map(prods.map((p, i) => [p.id, i]));
+      const act = locations.filter(l => l.is_active !== false), whs = act.filter(l => l.type === 'warehouse'), sps = act.filter(l => l.type === 'sales_point');
+      if (!prods.length || !whs.length || !sps.length) throw new Error('Need at least one active product, warehouse and sales point.');
+      const batch = async (table, rows, fn) => { for (let i = 0; i < rows.length; i += 500) { const r = await fn(rows.slice(i, i + 500)); if (r.error) throw r.error; } };
+      // 1) opening stock
+      const op = []; act.forEach(l => prods.forEach(p => { const i = idx.get(p.id), low = i % 7 === 0, q = l.type === 'warehouse' ? (low ? 400 : 2000 + (i % 5) * 500) : (low ? 120 : 150 + (i % 4) * 25); op.push({location_id: l.id, product_id: p.id, entry_date: F, entry_type: 'opening', qty: q}); }));
+      await batch('stock_ledger', op, r => db.from('stock_ledger').insert(r)); 
+      const ud = await db.from('locations').update({opening_date: F}).in('id', act.map(l => l.id)); if (ud.error) throw ud.error;
+      log(`✔ Opening stock: ${op.length} rows`);
+      // 2) sales
+      const sl = []; for (let d = 1; d <= 22; d++) { const date = addDays(F, d - 1); sps.forEach(l => prods.forEach(p => sl.push({location_id: l.id, product_id: p.id, sale_date: date, qty: 1 + (idx.get(p.id) % 3) + (d % 3)}))); }
+      await batch('daily_sales', sl, r => db.from('daily_sales').upsert(r, {onConflict: 'location_id,product_id,sale_date'}));
+      log(`✔ Sales: ${sl.length} rows (${F} → ${T})`);
+      // 3) purchases through the app's own PO functions
+      const sq = await db.from('suppliers').select('*').eq('is_active', true); if (sq.error) throw sq.error;
+      const supBy = new Map(sq.data.map(s => [norm(s.name), s])), groups = new Map();
+      prods.forEach(p => { const s = p.supplier && supBy.get(norm(p.supplier)); if (s) { if (!groups.has(s.id)) groups.set(s.id, {s, ps: []}); groups.get(s.id).ps.push(p); } });
+      const skipped = prods.filter(p => !(p.supplier && supBy.get(norm(p.supplier)))).length, EXP = ['2027-01-31', '2027-06-30', '2027-12-31', '2028-06-30'];
+      const waves = [{po: '2026-11-03', rc: '2026-11-06', tag: 'W1'}, {po: '2026-11-10', rc: '2026-11-13', tag: 'W2'}, {po: '2026-11-18', rc: null, tag: 'W3'}];
+      let made = 0, got = 0, g = 0;
+      for (const w of waves) { let k = 0; for (const {s, ps} of groups.values()) {
+        const wh = whs[(k++ + waves.indexOf(w)) % whs.length], lines = ps.map(p => ({product_id: p.id, qty: 500 + (idx.get(p.id) % 3) * 100, unit_cost: 40 + (idx.get(p.id) % 10) * 5}));
+        const c = await db.rpc('create_po', {p_supplier: s.id, p_warehouse: wh.id, p_date: w.po, p_expected: w.rc || addDays(w.po, s.lead_time_days || 10), p_note: 'TEST DATA ' + w.tag, p_lines: lines}); if (c.error) throw new Error(`${s.name}: ${c.error.message}`);
+        const q = await db.from('purchase_orders').select('id').eq('po_no', c.data); const id = q.data && q.data[0] ? q.data[0].id : c.data;
+        const o = await db.rpc('po_set_status', {p_po: id, p_action: 'order'}); if (o.error) throw o.error; made++;
+        if (w.rc) { const r = await db.rpc('receive_po', {p_po: id, p_date: w.rc, p_ref: 'TEST-' + w.tag, p_note: 'TEST DATA', p_lines: ps.map(p => ({product_id: p.id, qty: 500 + (idx.get(p.id) % 3) * 100, batch_no: `B-${w.tag}-${(idx.get(p.id) % 4) + 1}`, expiry_date: EXP[idx.get(p.id) % 4]}))}); if (r.error) throw new Error(`Receive ${c.data}: ${r.error.message}`); got++; }
+        log(`  PO ${c.data} · ${s.name} → ${wh.name}${w.rc ? ' · received ' + w.rc : ' · ordered (open)'}`); g++; } }
+      log(`✔ Purchases: ${made} POs created, ${got} received, ${made - got} left open` + (skipped ? ` · ${skipped} product(s) skipped (no matching supplier in Master Data)` : ''));
+      try { Hub.invalidate(); } catch (e) {}
+      toast('Test data ready. Open any module to check.');
+    } catch (e) { log('✖ ' + (e.message || e)); toast('Stopped: ' + (e.message || e), 'err'); }
+    btn.disabled = false;
+  };
 }
 
 // ================================ LIVE STOCK ================================
