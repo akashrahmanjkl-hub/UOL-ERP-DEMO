@@ -25,60 +25,38 @@ body{margin:0;color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,-apple-system,
 ::selection{background:#bfe9c9}
 *::-webkit-scrollbar{height:10px;width:10px}*::-webkit-scrollbar-thumb{background:#bcd8cb;border-radius:8px}*::-webkit-scrollbar-thumb:hover{background:#97c3ae}
 
-/* ---- shell: sidebar + top bar ---- */
-.app{display:flex;min-height:100vh}
-.side{width:238px;flex:none;position:sticky;top:0;height:100vh;overflow-y:auto;background:linear-gradient(180deg,#0b4a2a 0%,#0d5a33 100%);padding:14px 12px;display:flex;flex-direction:column;z-index:12;transition:margin .2s}
-.sb{display:flex;gap:10px;align-items:center;padding:2px 4px 14px}.sb img{height:46px;width:auto;background:#fff;border-radius:12px;padding:3px}
-.sb b{display:block;color:#fff;font-size:13px;line-height:1.25}.sb small{color:#9fd8bd;font-size:11px}
-nav#tabs{display:flex;flex-direction:column;gap:2px;flex:1}nav#tabs:before{content:"MAIN MENU";color:#9fd8bd;font-size:11px;font-weight:700;letter-spacing:1.4px;padding:2px 12px 8px}
-nav#tabs button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:transparent;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;color:#d6efe3;cursor:pointer}
-nav#tabs button:hover{background:rgba(255,255,255,.1)}nav#tabs button i{font-style:normal;width:20px;text-align:center}
-nav#tabs button.on{background:#2e9b4a;color:#fff;box-shadow:0 6px 14px -6px rgba(0,0,0,.45)}
-nav#tabs .car{margin-left:auto;font-size:11px;transition:transform .15s}.grp.open .car{transform:rotate(180deg)}
-nav#tabs .gi{display:none;margin:2px 0 4px 21px;padding-left:8px;border-left:1px dotted rgba(255,255,255,.3)}.grp.open .gi{display:block}
-nav#tabs .gi button{font-size:12.5px;font-weight:500;padding:7px 10px;color:#bfe3d0}nav#tabs .gi button.on{background:rgba(255,255,255,.16);box-shadow:none}
-.gg{margin-top:12px;display:flex;gap:10px;align-items:center;background:rgba(255,255,255,.1);border-radius:12px;padding:12px;color:#fff;font-size:20px}.gg b{display:block;font-size:12.5px}.gg small{font-size:11.5px;color:#bfe3d0}
-.content{flex:1;min-width:0;display:flex;flex-direction:column}
-.topbar{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:14px;padding:10px 24px;background:#fff;border-bottom:1px solid var(--line)}
-#hamb{border:0;background:transparent;font-size:22px;color:var(--deep);cursor:pointer;padding:4px 8px}
-.ttl b{display:block;font-size:20px;color:var(--deep);line-height:1.2}.ttl small{color:var(--muted);font-size:12.5px}
-.chips{margin-left:auto;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-.chip{border-radius:999px;padding:5px 13px;font-weight:600;font-size:12px;border:1px solid}
+/* ---- top bar ---- */
+.topbar{position:relative;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:8px 22px;background:#fff;box-shadow:0 2px 14px -6px rgba(15,70,45,.25);z-index:5}
+.topbar:after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--brand)}
+.brand{display:flex;gap:12px;align-items:center}
+.logo-img{height:62px;width:auto;display:block}
+.brand b{display:block;font-size:17px;color:var(--deep);letter-spacing:.2px;line-height:1.2}
+.brand small{color:var(--muted);font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-bottom:4px}
+.chip{border-radius:999px;padding:6px 14px;font-weight:600;font-size:12.5px;border:1px solid}
 .chip.db{background:var(--blue-soft);color:var(--blue);border-color:#b7e3f1}
 .chip.clock{background:var(--green-soft);color:var(--deep);border-color:#bfe5c9;font-family:ui-monospace,Menlo,Consolas,monospace}
 .chip.live{background:#e8f8ee;color:#166534;border-color:#b7e6c6;cursor:pointer}.chip.live.off{background:#fef3c7;color:#92400e;border-color:#fde68a}
-.bell{position:relative;border:0;background:transparent;font-size:19px;cursor:pointer}.bell span{position:absolute;top:-6px;right:-6px;background:#e11d48;color:#fff;border-radius:999px;font-size:10px;font-weight:700;padding:1px 5px}.bell span:empty{display:none}
-.loginas{display:flex;align-items:center;gap:8px;background:var(--green-soft);border:1px solid #bfe5c9;border-radius:999px;padding:3px 4px 3px 12px}
-.loginas span{font-weight:700;color:var(--deep);font-size:11px;letter-spacing:.5px}
-.loginas select{border:1px solid #cfe6d8;border-radius:999px;padding:6px 12px;font-size:13px;background:#fff;min-width:200px;color:var(--ink)}
-main{flex:1;min-width:0;padding:20px 24px 48px}
-body.nav-closed .side{margin-left:-238px}
-@media(max-width:900px){.side{position:fixed;left:0;margin-left:-238px}body.nav-open .side{margin-left:0}body.nav-closed .side{margin-left:-238px}main{padding:14px 12px 36px}.topbar{padding:8px 12px}.loginas select{min-width:0}.chip.db,.chip.clock{display:none}}
-/* ---- dashboard ---- */
-.dh{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
-.dh h2{margin:0;font-size:22px;color:var(--deep)}.dh p{margin:2px 0 0;color:var(--muted);font-size:13px}
-.drange{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:5px 10px;font-weight:600}
-.drange input{border:0;padding:3px;min-width:0;width:122px;font-size:13px;font-weight:600;color:var(--ink);background:transparent}
-.kpis{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:14px}
-.kpi{position:relative;border-radius:14px;padding:16px;display:flex;gap:12px;align-items:flex-start;border:1px solid rgba(0,0,0,.05);overflow:hidden}
-.kpi .ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:21px;color:#fff;flex:none}
-.kpi small{display:block;font-weight:600;color:#2b3f37}.kpi b{display:block;font-size:26px;color:var(--ink);line-height:1.2}.kpi em{font-style:normal;font-size:11.5px;color:var(--muted)}
-.kpi .up{color:#15803d;font-weight:700}.kpi .dn{color:#b91c1c;font-weight:700}.kpi svg.sp{position:absolute;right:10px;bottom:10px;opacity:.9}
-.kpi.g{background:linear-gradient(135deg,#eaf8ee,#d8f1df)}.kpi.g .ic{background:#16803c}
-.kpi.b{background:linear-gradient(135deg,#ebf3ff,#dbe8fd)}.kpi.b .ic{background:#2f7cf0}
-.kpi.o{background:linear-gradient(135deg,#fff4e6,#ffe8cc)}.kpi.o .ic{background:#f59e0b}
-.kpi.p{background:linear-gradient(135deg,#f3edff,#e7dcfd)}.kpi.p .ic{background:#7c3aed}
-.dgrid3{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-bottom:14px}
-.dgrid2{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));margin-bottom:14px}
-@media(max-width:560px){.dgrid2{grid-template-columns:1fr}}
-.dc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);min-width:0}
-.dc h3{display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;font-size:14.5px}
-.dc h3 a{font-size:12px;font-weight:600;color:var(--green);cursor:pointer}
-.dc svg{max-width:100%;height:auto;display:block}
-.dleg{display:flex;flex-direction:column;gap:9px;font-size:12.5px}.dleg div{display:flex;align-items:center;gap:8px}.dleg i{width:9px;height:9px;border-radius:50%;flex:none}.dleg span{margin-left:auto;color:var(--muted);padding-left:10px;white-space:nowrap}
-.dsec{margin:22px 0 10px;color:var(--deep);font-size:16px}
-.b-pend{background:#fff1d6;color:#b45309}.b-low{background:#fee2e2;color:#b91c1c}
-.pi{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#dff3e5;color:#166534;font-size:11px;font-weight:700;margin-right:8px;vertical-align:middle}
+.loginas{display:flex;align-items:center;gap:10px;background:var(--green-soft);border:1px solid #bfe5c9;border-radius:999px;padding:4px 5px 4px 14px}
+.loginas span{font-weight:700;color:var(--deep);font-size:11.5px;letter-spacing:.5px}
+.loginas select{border:1px solid #cfe6d8;border-radius:999px;padding:7px 14px;font-size:14px;background:#fff;min-width:230px;color:var(--ink)}
+
+/* ---- layout + sidebar ---- */
+.app{display:flex;align-items:flex-start;min-height:calc(100vh - 70px)}
+nav#tabs{width:244px;flex:none;position:sticky;top:0;align-self:stretch;background:linear-gradient(180deg,#0d4f2c 0%,#0c5b45 52%,#0a5f78 100%);padding:16px 12px;display:flex;flex-direction:column;gap:3px;box-shadow:4px 0 18px -10px rgba(7,50,40,.5)}
+nav#tabs:before{content:"MAIN MENU";color:#9fd8bd;font-size:11px;font-weight:700;letter-spacing:1.4px;padding:2px 12px 10px}
+nav#tabs button{display:flex;align-items:center;gap:11px;text-align:left;border:0;background:transparent;border-radius:10px;padding:10px 12px;font-size:13.5px;font-weight:600;color:#d6efe3;cursor:pointer;transition:background .15s,transform .15s}
+nav#tabs button:hover{background:rgba(255,255,255,.11)}
+nav#tabs button.on{background:linear-gradient(90deg,#34a94b,#0b96b8);color:#fff;box-shadow:0 6px 14px -6px rgba(0,0,0,.45)}
+nav#tabs button i{font-style:normal;width:22px;text-align:center;font-size:15px}
+main{flex:1;min-width:0;padding:22px 26px 48px}
+@media(max-width:800px){
+  .app{flex-direction:column}main{padding:14px 12px 36px}
+  nav#tabs{width:100%;position:static;flex-direction:row;overflow-x:auto;padding:8px;gap:6px;box-shadow:none}
+  nav#tabs:before{display:none}nav#tabs button{white-space:nowrap;padding:9px 12px}
+  .topbar{padding:8px 12px}.logo-img{height:44px}.loginas select{min-width:0}
+}
+
 /* ---- cards, tiles ---- */
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
 .card h2{margin:0 0 4px;font-size:18px;color:var(--deep);letter-spacing:.1px}
@@ -146,29 +124,108 @@ tr.total td{font-weight:800;background:#e8f6ee!important;color:var(--deep);borde
 .login-card .login-logo{width:230px;max-width:80%;height:auto;margin:6px auto 4px;display:block}
 .login-card label,.login-card input{text-align:left}
 .login-card input{width:100%}
+
+/* ===== App shell and dashboard (reference design) ===== */
+:root{--bg:#f3f7f6}
+.topbar{height:64px;padding:0 20px;gap:14px;flex-wrap:nowrap;justify-content:flex-start;background:#fff;box-shadow:0 1px 0 #e1ece6}
+.topbar:after{display:none}
+.menu-btn{border:0;background:transparent;width:40px;height:40px;border-radius:10px;cursor:pointer;color:#14532d;display:flex;align-items:center;justify-content:center}
+.menu-btn:hover{background:var(--green-soft)}
+.tb-sep{width:1px;height:34px;background:#d6e6dd}
+.tb-title b{display:block;font-size:20px;line-height:1.15;color:#0f5a2d;letter-spacing:.1px}.tb-title small{color:#2f8a54;font-size:13.5px}
+.chips{margin-left:auto;padding-bottom:0;flex-wrap:nowrap;gap:9px}
+.chip{padding:5px 12px;font-size:12px;white-space:nowrap}
+.bell{position:relative;border:0;background:transparent;width:40px;height:40px;border-radius:50%;cursor:pointer;color:#14532d;display:flex;align-items:center;justify-content:center}
+.bell:hover{background:var(--green-soft)}.bell .n{position:absolute;top:2px;right:1px;background:#e11d48;color:#fff;font-size:10px;font-weight:700;border-radius:999px;min-width:17px;height:17px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+#bellPanel{position:fixed;top:62px;right:20px;width:350px;max-width:94vw;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 44px -14px rgba(10,60,40,.4);z-index:40;display:none;overflow:hidden}
+#bellPanel.open{display:block}.bp-h{padding:12px 16px;font-weight:800;color:var(--deep);border-bottom:1px solid var(--line)}
+.bp-i{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;background:#fff;padding:11px 16px;font-size:13px;cursor:pointer;border-bottom:1px solid #eef5f1;color:var(--ink)}
+.bp-i:hover{background:#f3faf6}.bp-i .dot{width:9px;height:9px;border-radius:50%;margin-top:5px;flex:none;background:#f59e0b}.bp-i.err .dot{background:#dc2626}.bp-e{padding:18px 16px;color:var(--muted);font-size:13px}
+.loginas.user-pill{position:relative;display:flex;align-items:center;gap:10px;background:transparent;border:0;border-radius:999px;padding:3px 10px 3px 3px;cursor:pointer;margin-left:4px}
+.user-pill:hover{background:var(--green-soft)}
+.avatar{width:38px;height:38px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px}
+.u-txt b{display:block;font-size:13.5px;color:#12281f;line-height:1.2}.u-txt small{color:var(--muted);font-size:12px}.user-pill .caret{font-style:normal;color:var(--muted)}
+.loginas.user-pill select{position:absolute;inset:0;width:100%;height:100%;min-width:0;opacity:0;cursor:pointer;border:0;padding:0}
+.app{min-height:calc(100vh - 64px)}
+nav#tabs{width:236px;padding:0 12px 14px;gap:2px;background:linear-gradient(180deg,#0f5a31 0%,#0d4f2c 60%,#0b4426 100%);overflow-y:auto;max-height:calc(100vh - 64px);position:sticky;top:0}
+nav#tabs:before{display:none}
+.nav-brand{display:flex;align-items:center;gap:10px;padding:16px 6px 16px;color:#fff}
+.nb-logo{width:48px;height:48px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden}.nb-logo img{width:44px;height:44px;object-fit:contain}
+.nav-brand b{display:block;font-size:13.5px;line-height:1.25;font-weight:700}
+nav#tabs button.nt,nav#tabs button.nh{display:flex;align-items:center;gap:11px;width:100%;padding:11px 12px;border-radius:10px;font-size:14px;font-weight:600;color:#e3f4ea;background:transparent}
+nav#tabs button.nt:hover,nav#tabs button.nh:hover{background:rgba(255,255,255,.1)}
+nav#tabs button.nt.on{background:#2f9e5a;color:#fff;box-shadow:0 6px 14px -8px rgba(0,0,0,.6)}
+nav#tabs button.nt svg,nav#tabs button.nh svg{flex:none;opacity:.95}
+nav#tabs button.nh span{flex:1;text-align:left}nav#tabs button.nh em{font-style:normal;transition:transform .15s;opacity:.8;font-size:17px}
+.ng.open>button.nh em{transform:rotate(90deg)}.ng.has-on>button.nh{color:#fff}
+.ns{display:none;margin:2px 0 6px 22px;border-left:1px solid rgba(255,255,255,.22);padding-left:0}.ng.open .ns{display:block}
+nav#tabs button.ni{display:flex;align-items:center;gap:11px;width:100%;padding:7px 8px 7px 0;font-size:13px;font-weight:500;color:#cfe8d9;background:transparent;border-radius:8px;text-align:left;position:relative}
+nav#tabs button.ni i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.35);margin-left:-4px;flex:none;font-style:normal}
+nav#tabs button.ni:before{content:"";width:12px;height:1px;background:rgba(255,255,255,.22);flex:none;margin-left:0}
+nav#tabs button.ni:hover{color:#fff}nav#tabs button.ni.on{color:#fff;font-weight:700}nav#tabs button.ni.on i{background:#7bd88f;box-shadow:0 0 0 3px rgba(123,216,143,.25)}
+.nav-foot{margin-top:auto;display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px 14px;color:#fff}
+.nav-foot b{display:block;font-size:14px}.nav-foot small{color:#bfe3cc;font-size:12.5px}
+body.nav-closed nav#tabs{display:none}
+#navBack{display:none}
+@media(max-width:900px){
+  nav#tabs{position:fixed;left:0;top:0;bottom:0;max-height:none;z-index:60;width:272px;transform:translateX(-102%);transition:transform .2s;flex-direction:column;overflow-y:auto;padding:0 12px 14px;display:flex!important}
+  body.nav-open nav#tabs{transform:none}body.nav-open #navBack{display:block;position:fixed;inset:0;background:rgba(5,40,25,.45);z-index:55}
+  .chips .chip.db,.chips .chip.clock,.u-txt{display:none}.tb-title b{font-size:16px}.topbar{padding:0 10px;gap:8px}
+}
+.dash-head{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.dh-ic{color:#14673a;display:flex}.dash-head h1{margin:0;font-size:23px;color:#0f2e20}.dash-head p{margin:2px 0 0;color:var(--muted)}
+.rangewrap{margin-left:auto;position:relative}
+.rangebtn{display:flex;gap:9px;align-items:center;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 14px;font-weight:600;font-size:13px;cursor:pointer;color:#12281f;box-shadow:var(--shadow)}
+.rangebtn i{font-style:normal;color:var(--muted)}
+.rangepop{display:none;position:absolute;right:0;top:46px;z-index:30;width:310px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 44px -14px rgba(10,60,40,.4);padding:12px}
+.rangepop.open{display:block}.rp-p{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.rp-p button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;color:var(--deep)}.rp-p button.on,.rp-p button:hover{background:var(--green-soft);border-color:#9ad2ac}
+.rp-d{display:grid;grid-template-columns:44px 1fr;gap:6px 8px;align-items:center}.rp-d label{margin:0}.rp-d input{min-width:0;width:100%}.rp-d .btn{grid-column:1/3}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:16px}
+.kpi{display:flex;align-items:center;gap:12px;border-radius:14px;padding:16px;border:1px solid;min-width:0}
+.kpi.green{background:linear-gradient(135deg,#e3f6ea,#f4fbf6);border-color:#c8e9d4}.kpi.blue{background:linear-gradient(135deg,#e4eefc,#f3f8ff);border-color:#cbddf7}
+.kpi.orange{background:linear-gradient(135deg,#fdeedb,#fff8ef);border-color:#f6d9b3}.kpi.purple{background:linear-gradient(135deg,#eee6fb,#f8f4fe);border-color:#dccff5}
+.k-ic{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex:none;color:#fff}
+.green .k-ic{background:#1f9a4d}.blue .k-ic{background:#2f7fe0}.orange .k-ic{background:#f08a1c}.purple .k-ic{background:#7c4ddb}
+.k-b{min-width:0}.k-b small{display:block;color:#3b4a44;font-weight:600;font-size:13px}.k-b b{display:block;font-size:25px;line-height:1.25;color:#12281f;white-space:nowrap}
+.dl{font-size:12px;font-weight:700}.dl.up{color:#15803d}.dl.dn{color:#b91c1c}.dl.new{color:#2f7fe0}.dl.muted{color:var(--muted);font-weight:600}.k-b em{font-style:normal;color:var(--muted);font-size:12px;margin-left:4px}
+.k-s{margin-left:auto;flex:none}.lnk{color:#15803d;font-weight:700;font-size:12.5px;cursor:pointer;text-decoration:none;background:none;border:0;padding:0}.lnk:hover{text-decoration:underline}
+.d3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:16px}.d2{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:16px}
+.dcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:var(--shadow);min-width:0}
+.dc-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px}.dc-h h3{margin:0;font-size:15.5px;color:#12281f;display:flex;align-items:center;gap:8px}.dc-h h3 svg{color:#14673a}
+.donut{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}.legend{list-style:none;margin:0;padding:0;flex:1;min-width:150px}
+.legend li{display:flex;align-items:center;gap:9px;margin:9px 0;font-size:12.5px}.legend .sw{width:9px;height:9px;border-radius:50%;flex:none}.legend b{font-weight:700;color:#12281f}.legend li>div{color:var(--muted)}.legend em{margin-left:auto;font-style:normal;font-weight:700;color:#12281f}
+.lg2{display:flex;justify-content:center;gap:18px;font-size:12px;color:var(--muted);margin-top:4px}.lg2 i{display:inline-block;width:18px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.foot{margin:8px 0 0;font-size:12px;color:var(--muted)}
+table.dt{min-width:0}table.dt th{background:#f5faf7;font-size:11.5px;padding:8px 10px}table.dt td{padding:9px 10px;font-size:13px;vertical-align:middle}
+.pi{width:26px;height:26px;border-radius:7px;background:#e8f3ec;color:#166534;display:inline-flex;align-items:center;justify-content:center;font-weight:800;margin-right:9px;vertical-align:middle}
+@media(max-width:1250px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.d3{grid-template-columns:repeat(2,minmax(0,1fr))}.d2{grid-template-columns:1fr}}
+@media(max-width:700px){.kpis,.d3{grid-template-columns:1fr}.rangewrap{margin-left:0}}
+
+.topbar{position:sticky;top:0;z-index:30}
+nav#tabs{top:64px;height:calc(100vh - 64px);max-height:none}
+.k-b small,.k-b .dl,.k-b em{white-space:nowrap}
+.k-b b{font-size:23px}
+@media(max-width:900px){nav#tabs{top:0;height:auto}}
 </style>
 </head>
 <body>
-<div class="app">
-<aside class="side" id="side">
-  <div class="sb"><img alt="Ultimate Organic Life" src="data:image/jpeg;base64,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"><div><b>Ultimate Organic Life Ltd</b><small>Secondary ERP</small></div></div>
-  <nav id="tabs"></nav>
-  <div class="gg"><span>🌿</span><div><b>Go Green</b><small>Grow Better</small></div></div>
-</aside>
-<div class="content">
 <header class="topbar">
-  <button id="hamb" title="Menu">☰</button>
-  <div class="ttl"><b>Ultimate Organic Life Ltd</b><small>Secondary ERP · Inventory &amp; Indent</small></div>
+  <button class="menu-btn" id="menuBtn" title="Show or hide the menu" aria-label="Menu"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <div class="tb-sep"></div>
+  <div class="tb-title"><b>Ultimate Organic Life Ltd</b><small>Secondary ERP</small></div>
   <div class="chips">
     <span class="chip db">Database: Supabase</span>
     <span class="chip clock" id="clock"></span>
-    <span class="chip live off" id="liveChip" title="Click to refresh the live data now" style="cursor:pointer">● Live data</span>
-    <button class="bell" id="bell" title="Pending indents + low-stock alerts">🔔<span id="bellN"></span></button>
-    <div class="loginas"><span>👤 LOGIN AS</span><select id="loginAs"></select></div>
+    <span class="chip live off" id="liveChip" title="Click to refresh the live data now">● Live data</span>
+    <button class="bell" id="bellBtn" title="Alerts" aria-label="Alerts"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1112 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9zM10 20a2 2 0 004 0"/></svg><span class="n" id="bellN" style="display:none">0</span></button>
+    <div class="loginas user-pill" title="Switch the signed-in role (demo mode)"><div class="avatar" id="uAv">U</div><div class="u-txt"><b id="uName">User</b><small id="uRole"></small></div><i class="caret">▾</i><select id="loginAs"></select></div>
   </div>
 </header>
+<div id="bellPanel"></div><div id="navBack"></div>
+<div class="app">
+<nav id="tabs"></nav>
 <main id="view"></main>
-</div>
 </div>
 <div id="toast"></div>
 
@@ -396,23 +453,66 @@ const TABS = [
   {id: 'stockops', label: 'Stock Operations', central: true, render: v => stockOps(v, 'cnt')},
   {id: 'health', label: 'Data Health Check', central: true, render: renderHealth},
   {id: 'master', label: 'Master Data', central: true, render: renderMaster},
-  {id: 'audit', label: 'Audit Trail', admin: true, render: renderAudit},
-  {id: 'testdata', label: 'Test Data', admin: true, render: renderTestData}   // testing helper - delete this line to remove the tab
+  {id: 'testdata', label: 'Test Data', admin: true, render: renderTestData},
+  {id: 'audit', label: 'Audit Trail', admin: true, render: renderAudit}
 ];
-const NAV_ICON = {dashboard:'📊',stock:'📦',indent:'📝',opening:'🏁',sales:'💰',master:'🗂️',plan:'🧭',challan:'🚚',reorder:'📈',import:'🚢',health:'🩺',expiry:'⏳',po:'🛒',planset:'🎛️',abc:'🔠',stockops:'🧮',transfer:'🔁',return:'↩️',adjust:'⚖️',qcfail:'❌',stockdocs:'📄',invmove:'🔄',audit:'🕵️',testdata:'🧪'};
-function buildTabs() {   // flat list: every module, same order as before
-  $('#tabs').innerHTML = TABS.filter(t => tabOk(t)).map(t => `<button data-t="${t.id}"><i>${NAV_ICON[t.id] || '•'}</i>${t.label}</button>`).join('');
-  $('#tabs').querySelectorAll('button[data-t]').forEach(b => b.onclick = () => showTab(b.dataset.t));
-  $('#hamb').onclick = () => document.body.classList.toggle(innerWidth > 900 ? 'nav-closed' : 'nav-open');
-  $('#bell').onclick = () => showTab('dashboard');
+const LOGO_EMB = "data:image/jpeg;base64,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";
+const svgI = (p, s = 22) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const NAV_ICONS = {
+  home: svgI('<path d="M3 11l9-8 9 8M5 10v10h14V10M10 20v-6h4v6"/>', 20), box: svgI('<path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/>', 20),
+  cart: svgI('<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.5 12h11L21 7H6"/>', 20), clip: svgI('<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/>', 20),
+  truck: svgI('<path d="M2 6h12v10H2zM14 10h4l3 3v3h-7M6 19a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM17 19a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/>', 20),
+  chart: svgI('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', 20), gear: svgI('<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.5 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 000 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.5-2.6a7 7 0 002-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>', 20),
+  shield: svgI('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3zM9 12l2 2 4-4"/>', 20)};
+const LEAF_ICON = svgI('<path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15M5 19c2-5 6-8 11-10"/>', 26);
+const NAV = [
+  {t: 'dashboard', icon: 'home'},
+  {g: 'Inventory', icon: 'box', items: ['stock', 'opening', 'challan', 'transfer', 'return', 'adjust', 'qcfail', 'stockdocs', 'stockops']},
+  {g: 'Sales', icon: 'cart', items: ['sales']},
+  {g: 'Indent', icon: 'clip', items: ['indent', 'plan']},
+  {g: 'Purchase Planning', icon: 'truck', items: ['reorder', 'import', 'po']},
+  {g: 'Reports', icon: 'chart', items: ['invmove', 'expiry', 'abc', 'health']},
+  {g: 'Settings', icon: 'gear', items: ['master', 'planset', 'testdata']},
+  {t: 'audit', icon: 'shield'}];
+const navOpen = () => { try { return new Set(JSON.parse(localStorage.getItem('uol_nav_open') || '["Inventory"]')); } catch (e) { return new Set(['Inventory']); } };
+const navSave = set => { try { localStorage.setItem('uol_nav_open', JSON.stringify([...set])); } catch (e) { /* storage unavailable */ } };
+function buildTabs() {
+  const vis = new Map(TABS.filter(t => tabOk(t)).map(t => [t.id, t])), used = new Set(), open = navOpen();
+  const grp = (name, icon, items) => `<div class="ng${open.has(name) ? ' open' : ''}" data-g="${esc(name)}"><button class="nh" data-gh="${esc(name)}">${NAV_ICONS[icon]}<span>${esc(name)}</span><em>›</em></button>
+    <div class="ns">${items.map(t => `<button class="ni" data-t="${t.id}"><i></i>${esc(t.label)}</button>`).join('')}</div></div>`;
+  let html = `<div class="nav-brand"><span class="nb-logo"><img src="${LOGO_EMB}" alt=""></span><div><b>Ultimate Organic Life</b><b>Secondary ERP</b></div></div>`;
+  NAV.forEach(n => {
+    if (n.t) { const t = vis.get(n.t); if (!t) return; used.add(t.id); html += `<button class="nt" data-t="${t.id}">${NAV_ICONS[n.icon]}<span>${esc(t.label)}</span></button>`; return; }
+    const items = n.items.map(id => vis.get(id)).filter(Boolean); if (!items.length) return; items.forEach(t => used.add(t.id)); html += grp(n.g, n.icon, items);
+  });
+  const rest = [...vis.values()].filter(t => !used.has(t.id)); if (rest.length) html += grp('More', 'gear', rest);
+  html += `<div class="nav-foot"><span>${LEAF_ICON}</span><div><b>Go Green</b><small>Grow Better</small></div></div>`;
+  $('#tabs').innerHTML = html;
+  $('#tabs').querySelectorAll('[data-t]').forEach(b => b.onclick = () => { document.body.classList.remove('nav-open'); showTab(b.dataset.t); });
+  $('#tabs').querySelectorAll('[data-gh]').forEach(b => b.onclick = () => { const g = b.closest('.ng'), set = navOpen(); g.classList.toggle('open'); g.classList.contains('open') ? set.add(b.dataset.gh) : set.delete(b.dataset.gh); navSave(set); });
 }
-function syncNav(id) {
-  $('#tabs').querySelectorAll('button[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === id));
-  document.body.classList.remove('nav-open');
+function paintNav(id) {
+  $('#tabs').querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === id));
+  $('#tabs').querySelectorAll('.ng').forEach(g => { const has = !!g.querySelector(`[data-t="${id}"]`); g.classList.toggle('has-on', has); if (has && !g.classList.contains('open')) { g.classList.add('open'); const set = navOpen(); set.add(g.dataset.g); navSave(set); } });
+}
+const ROLE_TXT = {super_admin: 'Administrator', admin: 'Administrator', sub_admin: 'Administrator', warehouse_manager: 'Warehouse Manager', inventory_manager: 'Inventory Manager', sales_point_user: 'Sales Point'};
+function paintUser() {
+  const sel = $('#loginAs'); if (!sel || !sel.options.length) return; const txt = sel.options[sel.selectedIndex].text.replace(/^Sales Point – /, '');
+  $('#uName').textContent = txt; $('#uRole').textContent = ROLE_TXT[session.role] || session.role; $('#uAv').textContent = txt.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+}
+let shellReady = false;
+function initShell() {
+  if (shellReady) return; shellReady = true;
+  const closed = (() => { try { return localStorage.getItem('uol_nav_closed') === '1'; } catch (e) { return false; } })(); document.body.classList.toggle('nav-closed', closed);
+  $('#menuBtn').onclick = () => { if (window.innerWidth <= 900) return document.body.classList.toggle('nav-open'); const c = document.body.classList.toggle('nav-closed'); try { localStorage.setItem('uol_nav_closed', c ? '1' : '0'); } catch (e) { /* ignore */ } };
+  $('#navBack').onclick = () => document.body.classList.remove('nav-open');
+  $('#bellBtn').onclick = e => { e.stopPropagation(); $('#bellPanel').classList.toggle('open'); };
+  document.addEventListener('click', e => { const p = $('#bellPanel'); if (p && !p.contains(e.target)) p.classList.remove('open'); });
+  $('#loginAs').addEventListener('change', () => setTimeout(paintUser, 0));
 }
 async function showTab(id) {
   currentTab = id; Hub.listeners = []; Hub.start();
-  syncNav(id);
+  initShell(); paintNav(id); paintUser(); $('#bellBtn').style.display = isCentral() ? '' : 'none';
   const v = $('#view'); v.innerHTML = loading;
   try { await TABS.find(t => t.id === id).render(v); }
   catch (e) { v.innerHTML = `<div class="card"><div class="note err">${esc(e.message || e)}</div></div>`; }
@@ -439,8 +539,117 @@ const prodName = id => (products.find(p => p.id === id) || {}).name || '—';
 const cover = (stock, s30) => s30 > 0 ? Math.round(stock / (s30 / WINDOW_DAYS)) : null;
 
 // =============================== DASHBOARD ===============================
+// ============================ DASHBOARD ============================
+const taka = n => '৳ ' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const kfmt = n => n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(Math.round(n));
+const fmtLong = d => new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'});
+const fmtShort = d => new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', {month: 'short', day: 'numeric', timeZone: 'UTC'});
+
+const DASH_ICON = svgI('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', 30), CAL_ICON = svgI('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>', 17),
+  BOX_ICON = svgI('<path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/>', 26), BOX_ICON_S = svgI('<path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/>', 18),
+  CLIP_ICON = svgI('<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/>', 26), CHECK_ICON = svgI('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>', 26),
+  WARN_ICON = svgI('<path d="M12 3l10 18H2L12 3zM12 10v5M12 18v.5"/>', 26), TREND_ICON = svgI('<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>', 18), WH_ICON = svgI('<path d="M3 21V9l9-6 9 6v12M7 21v-7h10v7"/>', 18),
+  DOC_ICON = svgI('<path d="M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6"/>', 18), ALERT_ICON = svgI('<path d="M12 3l10 18H2L12 3zM12 10v5M12 18v.5"/>', 18);
+const DASH_COLORS = ['#1a7f3f', '#3b9ae8', '#f2a626', '#8b5cf6', '#14b8a6', '#9ca3af'];
+const dashS = {from: '', to: '', preset: 'month'};
+let dashAlerts = [], dashAlertsAt = 0;
+
+function dashPreset(key) {
+  const td = today(), y = +td.slice(0, 4), m = +td.slice(5, 7), iso = d => d.toISOString().slice(0, 10);
+  switch (key) {
+    case 'month': return [iso(new Date(Date.UTC(y, m - 1, 1))), iso(new Date(Date.UTC(y, m, 0)))];
+    case 'last': return [iso(new Date(Date.UTC(y, m - 2, 1))), iso(new Date(Date.UTC(y, m - 1, 0)))];
+    case '7': return [addDays(td, -6), td];
+    case '30': return [addDays(td, -29), td];
+    case '90': return [addDays(td, -89), td];
+    case 'year': return [`${y}-01-01`, td];
+  }
+  return null;
+}
+function niceStep(max, ticks) { for (let e = 0; e < 15; e++) for (const k of [1, 2, 5]) { const s = k * Math.pow(10, e); if (s * ticks >= max) return s; } return max / ticks; }
+
+function svgSpark(vals, color, w = 84, h = 38) {
+  if (!vals || vals.length < 2) return '';
+  const min = Math.min(...vals), max = Math.max(...vals), span = (max - min) || 1, step = w / (vals.length - 1);
+  const pts = vals.map((v, i) => [i * step, h - 5 - ((v - min) / span) * (h - 12)]);
+  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], cx = (x0 + x1) / 2; d += ` C${cx.toFixed(1)},${y0.toFixed(1)} ${cx.toFixed(1)},${y1.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`; }
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block"><path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+}
+function svgDonut(parts, total) {
+  const r = 50, c = 2 * Math.PI * r; let off = 0;
+  const segs = parts.map(p => { const len = total ? p.value / total * c : 0, s = `<circle r="${r}" cx="80" cy="80" fill="none" stroke="${p.color}" stroke-width="26" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 80 80)"/>`; off += len; return s; }).join('');
+  const t = taka(total);
+  return `<svg viewBox="0 0 160 160" width="168" height="168" role="img" aria-label="Stock value by category">${total ? segs : `<circle r="${r}" cx="80" cy="80" fill="none" stroke="#e5ece8" stroke-width="26"/>`}
+    <text x="80" y="77" text-anchor="middle" font-size="${t.length > 11 ? 12 : 15}" font-weight="800" fill="#12281f">${esc(t)}</text><text x="80" y="94" text-anchor="middle" font-size="9.5" fill="#587068">Total Stock Value</text></svg>`;
+}
+function svgLines(labels, series, w = 380, h = 218) {
+  const L = 34, R = 12, T = 12, B = 28, iw = w - L - R, ih = h - T - B, max = Math.max(1, ...series.flatMap(s => s.vals)), step = niceStep(max, 4), top = step * 4;
+  const x = i => L + (labels.length > 1 ? i * iw / (labels.length - 1) : iw / 2), y = v => T + ih - (v / top) * ih;
+  const grid = [0, 1, 2, 3, 4].map(i => `<line x1="${L}" x2="${w - R}" y1="${y(i * step).toFixed(1)}" y2="${y(i * step).toFixed(1)}" stroke="#e6eee9" stroke-dasharray="${i ? '3 3' : '0'}"/><text x="${L - 6}" y="${(y(i * step) + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#6b7f77">${i * step}</text>`).join('');
+  const lines = series.map((s, k) => { const pts = s.vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+    const area = k === 0 ? `<polygon points="${x(0).toFixed(1)},${y(0)} ${pts.join(' ')} ${x(s.vals.length - 1).toFixed(1)},${y(0)}" fill="${s.color}" opacity=".10"/>` : '';
+    return area + `<polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2.2" stroke-linejoin="round"/>` + s.vals.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.4" fill="#fff" stroke="${s.color}" stroke-width="2"><title>${esc(s.name)}: ${v}</title></circle>`).join(''); }).join('');
+  const xl = labels.map((l, i) => `<text x="${x(i).toFixed(1)}" y="${h - 9}" text-anchor="middle" font-size="10.5" fill="#6b7f77">${esc(l)}</text>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block" role="img" aria-label="Indent trend">${grid}${lines}${xl}</svg>`;
+}
+function svgBars(items, w = 380, h = 218) {
+  const L = 40, R = 10, T = 12, B = 46, iw = w - L - R, ih = h - T - B, max = Math.max(1, ...items.map(i => i.value)), step = niceStep(max, 3), top = step * 3, y = v => T + ih - (v / top) * ih;
+  const slot = iw / Math.max(1, items.length), bw = Math.min(58, slot * .55), shades = ['#14673a', '#2fa84a', '#8bd36b', '#6cc3ea', '#9ca3af'];
+  const grid = [0, 1, 2, 3].map(i => `<line x1="${L}" x2="${w - R}" y1="${y(i * step).toFixed(1)}" y2="${y(i * step).toFixed(1)}" stroke="#e6eee9" stroke-dasharray="${i ? '3 3' : '0'}"/><text x="${L - 6}" y="${(y(i * step) + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#6b7f77">${kfmt(i * step)}</text>`).join('');
+  const bars = items.map((it, i) => { const cx = L + slot * i + slot / 2, yy = y(it.value), nm = it.label.length > 17 ? it.label.slice(0, 16) + '…' : it.label;
+    return `<rect x="${(cx - bw / 2).toFixed(1)}" y="${yy.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, y(0) - yy).toFixed(1)}" rx="3" fill="${shades[i % shades.length]}"><title>${esc(it.label)}: ${esc(taka(it.value))}</title></rect>
+      <text x="${cx.toFixed(1)}" y="${h - 27}" text-anchor="middle" font-size="10.5" font-weight="600" fill="#2b3f36">${esc(nm)}</text><text x="${cx.toFixed(1)}" y="${h - 12}" text-anchor="middle" font-size="10.5" fill="#587068">${esc(taka(it.value))}</text>`; }).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block" role="img" aria-label="Stock by warehouse">${grid}${bars}</svg>`;
+}
+
+// Stock value at the end of every week of the range, rebuilt backwards from today's live stock:
+// value then = value now - (receipts + opening entries + adjustments - sales - QC fails) that happened after that date. Transfers and challans only move stock inside the system.
+async function dashValueSeries(from, to, valueNow, mrpOf) {
+  const td = today(), end = to > td ? td : to; if (from > end) return null;
+  const wins = []; for (let s = from; s <= end; s = addDays(s, 7)) wins.push([s, addDays(s, 6) > end ? end : addDays(s, 6)]);
+  const n = wins.length; if (end < td) wins.push([addDays(end, 1), td]);
+  const delta = wins.map(() => 0), at = d => wins.findIndex(w => d >= w[0] && d <= w[1]), add = (d, pid, q) => { const i = at(d); if (i >= 0) delta[i] += q * (mrpOf.get(pid) || 0); };
+  const [sales, rc, docs, opens] = await Promise.all([
+    Promise.all(wins.map(w => rpcAll('sales_agg', {p_from: w[0], p_to: w[1], p_by_location: false}, 'prod_id'))),
+    fetchAll((a, b) => db.from('po_receipts').select('id,received_date').gte('received_date', from).order('id').range(a, b)),
+    fetchAll((a, b) => db.from('stock_docs').select('id,doc_type,doc_date,status').gte('doc_date', from).order('id').range(a, b)),
+    fetchAll((a, b) => db.from('stock_ledger').select('product_id,entry_date,qty').eq('entry_type', 'opening').gte('entry_date', from).order('id').range(a, b))]);
+  sales.forEach((rows, i) => rows.forEach(r => { delta[i] -= Number(r.qty) * (mrpOf.get(r.prod_id) || 0); }));
+  opens.forEach(r => add(r.entry_date, r.product_id, Number(r.qty)));
+  const lines = async (table, col, cols, ids) => (await Promise.all(invChunk(ids, 100).map(part => fetchAll((a, b) => db.from(table).select(cols).in(col, part).order('id').range(a, b))))).flat();
+  const rcMap = new Map(rc.map(r => [r.id, r.received_date])), live = docs.filter(d => d.status !== 'cancelled' && ['adjustment', 'count', 'damage'].includes(d.doc_type)), dMap = new Map(live.map(d => [d.id, d]));
+  const [rl, dl] = await Promise.all([rc.length ? lines('po_receipt_lines', 'receipt_id', 'receipt_id,product_id,qty', rc.map(r => r.id)) : [], live.length ? lines('stock_doc_lines', 'doc_id', 'doc_id,product_id,qty', live.map(d => d.id)) : []]);
+  rl.forEach(l => add(rcMap.get(l.receipt_id), l.product_id, Number(l.qty)));
+  dl.forEach(l => { const d = dMap.get(l.doc_id), q = Number(l.qty); add(d.doc_date, l.product_id, d.doc_type === 'damage' ? -Math.abs(q) : q); });
+  const vals = new Array(n); let v = valueNow; for (let i = wins.length - 1; i >= 0; i--) { if (i < n) vals[i] = v; v -= delta[i]; }
+  return {start: v, points: vals, end: vals[n - 1]};
+}
+
+async function refreshBell(snap, force) {
+  if (!isCentral() || !snap) return;
+  if (!force && Date.now() - dashAlertsAt < 120000) return paintBell();
+  dashAlertsAt = Date.now(); const td = today(), out = [], act = products.filter(p => p.is_active);
+  if (!snap.missing.includes('forecast data')) {
+    const rows = act.map(p => Engine.procure(p, snap)), low = rows.filter(r => r.D > 0 && r.pos < Math.ceil(r.D * r.B)), risk = rows.filter(r => r.status === 'Stock-out risk');
+    if (low.length) out.push({text: `${low.length} product${low.length === 1 ? ' is' : 's are'} below the reorder level`, tab: 'reorder', sev: 'warn'});
+    if (risk.length) out.push({text: `${risk.length} product${risk.length === 1 ? '' : 's'} will run out before a new shipment can arrive`, tab: 'reorder', sev: 'err'});
+  }
+  try { const ch = await db.from('challans').select('challan_no,challan_date').eq('status', 'dispatched'); const old = (ch.data || []).filter(c => diffDays(c.challan_date, td) > 5);
+    if (old.length) out.push({text: `${old.length} challan${old.length === 1 ? ' has' : 's have'} been in transit for more than 5 days`, tab: 'challan', sev: 'warn'}); } catch (e) { /* ignore */ }
+  try { const ex = expiryBuild(snap, await expiryFetch()), exp = ex.rows.filter(r => r.expiry < td), soon = ex.rows.filter(r => r.expiry >= td && diffDays(td, r.expiry) <= 30);
+    if (exp.length) out.push({text: `${exp.length} batch${exp.length === 1 ? ' is' : 'es are'} past expiry and still on hand`, tab: 'expiry', sev: 'err'});
+    if (soon.length) out.push({text: `${soon.length} batch${soon.length === 1 ? '' : 'es'} will expire within 30 days`, tab: 'expiry', sev: 'warn'}); } catch (e) { /* Expiry Register not set up yet */ }
+  dashAlerts = out; paintBell();
+}
+function paintBell() {
+  const n = $('#bellN'); if (!n) return; n.textContent = dashAlerts.length; n.style.display = dashAlerts.length ? '' : 'none';
+  const p = $('#bellPanel'); if (p) p.innerHTML = `<div class="bp-h">Alerts</div>${dashAlerts.map(a => `<button class="bp-i ${a.sev}" data-go="${a.tab}"><span class="dot"></span>${esc(a.text)}</button>`).join('') || '<div class="bp-e">No alerts right now. Everything looks fine.</div>'}`;
+  if (p) p.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { p.classList.remove('open'); showTab(b.dataset.go); });
+}
+
 async function renderDashboard(v) {
-  const since = addDays(today(), -(WINDOW_DAYS - 1));
+  const since = addDays(today(), -(WINDOW_DAYS - 1)), td = today();
   const snap = await Hub.get(), stock = snap.ls, sales = await salesSince(since), hasFc = !snap.missing.includes('forecast data');
   Hub.onChange(() => showTab('dashboard'));
   const unitsByLoc = sumBy(stock, 'location_id', 'live_qty');
@@ -454,7 +663,7 @@ async function renderDashboard(v) {
     const low = stock.filter(r => r.location_id === loc.id && Engine.locRate(snap, loc.id, r.product_id) > 0)
       .map(r => ({name: prodName(r.product_id), live: Number(r.live_qty), c: Engine.cover(Number(r.live_qty), Engine.locRate(snap, loc.id, r.product_id))}))
       .sort((a, b) => a.c - b.c).slice(0, 10), dem = Engine.locTotal(snap, loc.id);
-    v.innerHTML = `<div class="card"><h2>${esc(loc.name)}</h2><p class="sub">Sales point dashboard — your own stock and sales only.</p></div>
+    v.innerHTML = `<div class="dash-head"><div class="dh-ic">${DASH_ICON}</div><div><h1>${esc(loc.name)}</h1><p>Sales point dashboard — your own stock and sales only.</p></div></div>
       <div class="grid">
         <div class="tile"><small>Live stock (units)</small><b>${fmt(units)}</b></div>
         <div class="tile"><small>Sales, last ${WINDOW_DAYS} days</small><b>${fmt(s30)}</b></div>
@@ -468,275 +677,93 @@ async function renderDashboard(v) {
     return;
   }
 
-  const R = dbRange || (dbRange = {from: today().slice(0, 8) + '01', to: monthEnd(today())});
-  const span = diffDays(R.from, R.to) + 1, pf = addDays(R.from, -span);
-  const inds = await fetchAll((a, b) => db.from('indents').select('id,indent_no,location_id,indent_date,status,created_at').gte('indent_date', pf).lte('indent_date', R.to).order('indent_date', {ascending: false}).order('created_at', {ascending: false}).order('id').range(a, b));
-  const inR = inds.filter(i => i.indent_date >= R.from), inP = inds.filter(i => i.indent_date < R.from);
-  const cnt = (arr, st) => arr.filter(i => !st || i.status === st).length;
-  const delta = (c, p) => p > 0 ? (c - p) / p * 100 : null;
-  const dtxt = d => d == null ? 'vs previous period: no data' : `<span class="${d >= 0 ? 'up' : 'dn'}">${d >= 0 ? '↑' : '↓'} ${Math.abs(d).toFixed(1)}%</span> vs previous period`;
-  // stock value: live qty x last purchase cost (MRP when no cost is recorded yet)
-  const pBy = new Map(products.map(p => [p.id, p])), costOf = pid => { const c = snap.lastCost && snap.lastCost.get(pid); return c > 0 ? c : Number((pBy.get(pid) || {}).mrp) || 0; };
-  const byCat = new Map(), byLoc = new Map(); let totVal = 0;
-  stock.forEach(r => { const q = Math.max(0, Number(r.live_qty)), val = q * costOf(r.product_id); totVal += val; const c = (pBy.get(r.product_id) || {}).category || 'Uncategorised'; byCat.set(c, (byCat.get(c) || 0) + val); byLoc.set(r.location_id, (byLoc.get(r.location_id) || 0) + val); });
-  const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1]), COL = ['#13682f', '#3b9cf5', '#f59e0b', '#8b5cf6'];
-  const parts = cats.slice(0, 3).map(([label, val], i) => ({label, val, color: COL[i]})); const oth = cats.slice(3).reduce((a, c) => a + c[1], 0); if (oth > 0) parts.push({label: 'Others', val: oth, color: COL[3]});
-  // weekly indent trend
-  const nW = Math.max(1, Math.ceil(span / 7)), wk = Array.from({length: nW}, () => ({t: 0, r: 0}));
-  inR.forEach(i => { const w = Math.min(nW - 1, Math.floor(diffDays(R.from, i.indent_date) / 7)); wk[w].t++; if (i.status === 'received') wk[w].r++; });
-  // low stock (same engine as Reorder Planning): network stock below demand x (lead time + safety days)
-  let low = []; try { if (hasFc) products.filter(p => p.is_active).forEach(p => { const o = Engine.procure(p, snap); if (!(o.D > 0)) return; const rl = Math.ceil(o.D * (o.L + o.safety)), cur = o.wh + o.sp; if (o.pos < rl) low.push({p, cur, rl}); }); } catch (e) { low = []; }
-  low.sort((a, b) => a.cur / a.rl - b.cur / b.rl);
-  const pQ = await db.from('indents').select('id', {count: 'exact', head: true}).eq('status', 'decided'), pendNow = pQ.count ?? 0;
-  const bell = $('#bellN'); if (bell) bell.textContent = (pendNow + low.length) || '';
-  const recent = inds.slice(0, 5), stB = st => st === 'received' ? '<span class="badge b-received">Received</span>' : '<span class="badge b-pend" title="Awaiting receipt">Pending</span>';
-  const whV = whs.map(l => ({label: l.name, val: byLoc.get(l.id) || 0})).sort((a, b) => b.val - a.val).slice(0, 6);
-  const dash = `<div class="dh"><div><h2>📊 Inventory &amp; Indent Dashboard</h2><p>Real-time overview of your inventory and indent activities</p></div>
-    <div class="drange">📅 <input type="date" id="drF" value="${R.from}"> – <input type="date" id="drT" value="${R.to}"></div></div>
-    <div class="kpis">
-      <div class="kpi g"><div class="ic">📦</div><div><small>Total Stock Value</small><b>${dTk(totVal)}</b><em>${fmt(whUnits0(stock))} units · live, all locations</em></div></div>
-      <div class="kpi b"><div class="ic">📝</div><div><small>Pending Indent</small><b>${pendNow}</b><em>${dtxt(delta(cnt(inR, 'decided'), cnt(inP, 'decided')))}</em></div>${dSpark(wk.map(w => w.t - w.r), '#2f7cf0')}</div>
-      <div class="kpi o"><div class="ic">✔</div><div><small>Received Indent</small><b>${cnt(inR, 'received')}</b><em>${dtxt(delta(cnt(inR, 'received'), cnt(inP, 'received')))}</em></div>${dSpark(wk.map(w => w.r), '#f59e0b')}</div>
-      <div class="kpi p"><div class="ic">⚠</div><div><small>Low Stock Items</small><b>${low.length}</b><em><a data-go="reorder" style="cursor:pointer;color:#6d28d9;font-weight:600">View Details →</a></em></div></div>
-    </div>
-    <div class="dgrid3">
-      <div class="dc"><h3>🟢 Inventory Overview <a data-go="stock">View Details →</a></h3>${dDonut(parts, totVal)}</div>
-      <div class="dc"><h3>📈 Indent Trend <a data-go="indent">View Report →</a></h3>${dLine(wk.map((w, i) => 'Week ' + (i + 1)), [{name: 'Total Indent', color: '#13682f', vals: wk.map(w => w.t)}, {name: 'Received', color: '#3b9cf5', vals: wk.map(w => w.r)}])}
-        <div class="muted" style="font-size:12px;text-align:center"><span style="color:#13682f">●</span> Total Indent &nbsp; <span style="color:#3b9cf5">●</span> Received</div></div>
-      <div class="dc"><h3>🏭 Stock by Warehouse <a data-go="stock">View Details →</a></h3>${dBars(whV)}</div>
-    </div>
-    <div class="dgrid2">
-      <div class="dc"><h3>🧾 Recent Indents <a data-go="indent">View All →</a></h3><div class="tablewrap"><table style="min-width:420px"><thead><tr><th>#</th><th>Indent No</th><th>Requested By</th><th>Date</th><th>Status</th><th>Action</th></tr></thead><tbody>
-        ${recent.map((i, k) => `<tr><td>${k + 1}</td><td>${esc(i.indent_no)}</td><td>${esc(locName(i.location_id))}</td><td>${i.indent_date}</td><td>${stB(i.status)}</td><td><button class="mini" data-ind="${i.id}">View</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No indents yet.</td></tr>'}</tbody></table></div></div>
-      <div class="dc"><h3>🔺 Low Stock Alerts <a data-go="reorder">View All →</a></h3><div class="tablewrap"><table style="min-width:420px"><thead><tr><th>Product</th><th class="n">Current Stock</th><th class="n" title="Daily demand x (lead time + safety days)">Reorder Level</th><th>Status</th></tr></thead><tbody>
-        ${low.slice(0, 5).map(r => `<tr><td><span class="pi">${esc((r.p.name || '?')[0].toUpperCase())}</span>${esc(r.p.name)}</td><td class="n">${fmt(r.cur)} ${esc(r.p.unit || '')}</td><td class="n">${fmt(r.rl)} ${esc(r.p.unit || '')}</td><td><span class="badge b-low">${r.cur <= 0 ? 'Out of Stock' : 'Low Stock'}</span></td></tr>`).join('') || `<tr><td colspan="4" class="muted">${hasFc ? 'No low-stock products.' : 'Forecast data is not available yet.'}</td></tr>`}</tbody></table></div></div>
-    </div>`;
-  const pending = await db.from('indents').select('id', {count: 'exact', head: true}).eq('status', 'decided');
-  const whUnits = whs.reduce((s, l) => s + (unitsByLoc.get(l.id) || 0), 0);
-  const spUnits = sps.reduce((s, l) => s + (unitsByLoc.get(l.id) || 0), 0);
-  const spSales = sps.reduce((s, l) => s + (salesByLoc.get(l.id) || 0), 0);
+  // ---------- central dashboard ----------
+  if (!dashS.from) [dashS.from, dashS.to] = dashPreset('month');
+  const F = dashS.from, T = dashS.to, len = diffDays(F, T) + 1, pF = addDays(F, -len), pT = addDays(F, -1);
+  const mrpOf = new Map(products.map(p => [p.id, Number(p.mrp) || 0])), pMap = new Map(products.map(p => [p.id, p]));
+  let valueNow = 0, noMrp = new Set(); const byCat = new Map(), byWh = new Map(whs.map(l => [l.id, 0]));
+  stock.forEach(r => { const q = Number(r.live_qty); if (!(q > 0)) return; const m = mrpOf.get(r.product_id) || 0; if (!m) noMrp.add(r.product_id); const val = q * m; valueNow += val;
+    const c = (pMap.get(r.product_id) || {}).category || 'Uncategorised'; byCat.set(c, (byCat.get(c) || 0) + val); if (byWh.has(r.location_id)) byWh.set(r.location_id, byWh.get(r.location_id) + val); });
+  const [indQ, prevQ, chQ, series, awaiting] = await Promise.all([
+    db.from('indents').select('id,indent_no,location_id,indent_date,status,created_at').gte('indent_date', F).lte('indent_date', T).order('indent_date', {ascending: false}).order('created_at', {ascending: false}).limit(3000),
+    db.from('indents').select('id,location_id,indent_date,status').gte('indent_date', pF).lte('indent_date', pT).limit(3000),
+    db.from('challans').select('to_location_id,challan_date,status').gte('challan_date', pF).limit(5000),
+    dashValueSeries(F, T, valueNow, mrpOf).catch(() => null),
+    db.from('indents').select('id', {count: 'exact', head: true}).eq('status', 'decided')]);
+  // Pending = no challan has been sent to that sales point since the indent date; Approved = supplied by a challan (or received in the old flow); Rejected = cancelled.
+  const chs = (chQ.data || []).filter(c => c.status !== 'cancelled'), istat = i => i.status === 'cancelled' ? 'rejected' : (i.status === 'received' || chs.some(c => c.to_location_id === i.location_id && c.challan_date >= i.indent_date)) ? 'approved' : 'pending';
+  const inds = (indQ.data || []).map(i => ({...i, st: istat(i)})), prevInds = (prevQ.data || []).map(i => ({...i, st: istat(i)}));
+  const pct = (cur, prev) => prev > 0 ? (cur - prev) / prev * 100 : (cur > 0 ? null : 0);
+  const cnt = (arr, st) => arr.filter(i => i.st === st).length;
+  // weekly buckets for indent trend
+  const bd = Math.max(7, Math.ceil(len / 8)), nb = Math.min(8, Math.ceil(len / bd)), bucket = d => Math.min(nb - 1, Math.floor(diffDays(F, d) / bd));
+  const tot = new Array(nb).fill(0), apr = new Array(nb).fill(0), pen = new Array(nb).fill(0);
+  inds.forEach(i => { const b = bucket(i.indent_date); if (b < 0) return; tot[b]++; if (i.st === 'approved') apr[b]++; if (i.st === 'pending') pen[b]++; });
+  const labels = tot.map((_, i) => bd === 7 ? `Week ${i + 1}` : fmtShort(addDays(F, i * bd)));
+  // low stock
+  const rows = hasFc ? products.filter(p => p.is_active).map(p => Engine.procure(p, snap)) : [];
+  const lowRows = rows.filter(r => r.D > 0 && r.pos < Math.ceil(r.D * r.B)).sort((a, b) => (a.pos / (a.D * a.B)) - (b.pos / (b.D * b.B)));
+  // categories
+  const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1]), top = cats.slice(0, 5), others = cats.slice(5).reduce((a, c) => a + c[1], 0);
+  const parts = top.map((c, i) => ({label: c[0], value: c[1], color: DASH_COLORS[i]})); if (others > 0) parts.push({label: 'Others', value: others, color: DASH_COLORS[5]});
+  const arrow = p => p == null ? '<span class="dl new">New</span>' : `<span class="dl ${p >= 0 ? 'up' : 'dn'}">${p >= 0 ? '↑' : '↓'} ${Math.abs(p).toFixed(1)}%</span>`;
+  const vp = series && series.start > 0 ? (series.end - series.start) / series.start * 100 : null;
+  const sp = series ? [series.start].concat(series.points) : null;
+  const unitOf = id => (pMap.get(id) || {}).unit || '';
+  const initial = n => esc(String(n || '?').trim().charAt(0).toUpperCase());
+  const stMap = {pending: ['Pending', 'b-partial'], approved: ['Approved', 'b-received'], rejected: ['Rejected', 'b-do_not_give']};
+  const whUnits = whs.reduce((s, l) => s + (unitsByLoc.get(l.id) || 0), 0), spUnits = sps.reduce((s, l) => s + (unitsByLoc.get(l.id) || 0), 0), spSales = sps.reduce((s, l) => s + (salesByLoc.get(l.id) || 0), 0);
   const prodsIn = id => stock.filter(r => r.location_id === id && Number(r.live_qty) > 0).length;
-  const legacy = `<div class="grid">
-      <div class="tile"><small>Warehouse stock, merged (units)</small><b>${fmt(whUnits)}</b></div>
-      <div class="tile"><small>All sales points stock (units)</small><b>${fmt(spUnits)}</b></div>
-      <div class="tile"><small>All sales points sales, last ${WINDOW_DAYS} days</small><b>${fmt(spSales)}</b></div>
-      <div class="tile"><small>Indents awaiting receipt</small><b>${pending.count ?? 0}</b></div>
-    </div>
-    <div class="card" style="margin-top:16px"><h3>Sales Points — stock vs sales</h3>
+  const rangeTxt = `${fmtLong(F)} – ${fmtLong(T)}`;
+
+  v.innerHTML = `<div class="dash-head"><div class="dh-ic">${DASH_ICON}</div><div><h1>Inventory &amp; Indent Dashboard</h1><p>Real-time overview of your inventory and indent activities</p></div>
+      <div class="rangewrap"><button class="rangebtn" id="rgBtn">${CAL_ICON}<span>${esc(rangeTxt)}</span><i>▾</i></button>
+        <div class="rangepop" id="rgPop"><div class="rp-p">${[['month', 'This month'], ['last', 'Last month'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days'], ['year', 'This year']].map(([k, n]) => `<button data-p="${k}" class="${dashS.preset === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+          <div class="rp-d"><label>From</label><input type="date" id="rgF" value="${F}"><label>To</label><input type="date" id="rgT" value="${T}"><button class="btn" id="rgGo">Apply</button></div></div></div></div>
+    <div class="kpis">
+      <div class="kpi green"><div class="k-ic">${BOX_ICON}</div><div class="k-b"><small>Total Stock Value</small><b>${taka(valueNow)}</b>${vp == null ? '<span class="dl muted">value at MRP</span>' : arrow(vp)}<em>${vp == null ? '' : 'vs period start'}</em></div><div class="k-s">${sp ? svgSpark(sp, '#1a8a3c') : ''}</div></div>
+      <div class="kpi blue"><div class="k-ic">${CLIP_ICON}</div><div class="k-b"><small>Pending Indent</small><b>${cnt(inds, 'pending')}</b>${arrow(pct(cnt(inds, 'pending'), cnt(prevInds, 'pending')))}<em>vs prev. period</em></div><div class="k-s">${svgSpark(pen, '#2f7fe0')}</div></div>
+      <div class="kpi orange"><div class="k-ic">${CHECK_ICON}</div><div class="k-b"><small>Approved Indent</small><b>${cnt(inds, 'approved')}</b>${arrow(pct(cnt(inds, 'approved'), cnt(prevInds, 'approved')))}<em>vs prev. period</em></div><div class="k-s">${svgSpark(apr, '#f08a1c')}</div></div>
+      <div class="kpi purple"><div class="k-ic">${WARN_ICON}</div><div class="k-b"><small>Low Stock Items</small><b>${hasFc ? lowRows.length : '—'}</b><a class="lnk" data-go="reorder">View Details →</a></div></div></div>
+    <div class="d3">
+      <div class="dcard"><div class="dc-h"><h3>${BOX_ICON_S} Inventory Overview</h3><a class="lnk" data-go="stock">View Details →</a></div>
+        <div class="donut">${svgDonut(parts, valueNow)}<ul class="legend">${parts.map(p => `<li><span class="sw" style="background:${p.color}"></span><div><b>${esc(p.label)}</b><div>${esc(taka(p.value))}</div></div><em>${valueNow ? (p.value / valueNow * 100).toFixed(1) : '0.0'}%</em></li>`).join('') || '<li class="muted">No stock yet.</li>'}</ul></div>
+        ${noMrp.size ? `<p class="foot">${noMrp.size} product${noMrp.size === 1 ? '' : 's'} on hand ${noMrp.size === 1 ? 'has' : 'have'} no MRP and ${noMrp.size === 1 ? 'is' : 'are'} not valued.</p>` : ''}</div>
+      <div class="dcard"><div class="dc-h"><h3>${TREND_ICON} Indent Trend</h3><a class="lnk" data-go="indent">View Report →</a></div>${svgLines(labels, [{name: 'Total Indent', color: '#1a8a3c', vals: tot}, {name: 'Approved', color: '#3b9ae8', vals: apr}])}
+        <div class="lg2"><span><i style="background:#1a8a3c"></i>Total Indent</span><span><i style="background:#3b9ae8"></i>Approved</span></div></div>
+      <div class="dcard"><div class="dc-h"><h3>${WH_ICON} Stock by Warehouse</h3><a class="lnk" data-go="stock">View Details →</a></div>${svgBars(whs.map(l => ({label: l.name, value: byWh.get(l.id) || 0})))}</div></div>
+    <div class="d2">
+      <div class="dcard"><div class="dc-h"><h3>${DOC_ICON} Recent Indents</h3><a class="lnk" data-go="indent">View All →</a></div>
+        <div class="tablewrap" style="border:0"><table class="dt"><thead><tr><th>#</th><th>Indent No</th><th>Requested By</th><th>Date</th><th>Status</th><th>Action</th></tr></thead><tbody>
+        ${inds.slice(0, 5).map((i, k) => `<tr><td>${k + 1}</td><td><a class="lnk" data-ind="${i.id}">${esc(i.indent_no)}</a></td><td>${esc(locName(i.location_id))}</td><td style="white-space:nowrap">${fmtLong(i.indent_date)}</td><td><span class="badge ${stMap[i.st][1]}">${stMap[i.st][0]}</span></td><td><button class="mini" data-ind="${i.id}">View</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No indents in this period.</td></tr>'}
+        </tbody></table></div><p class="foot">Pending: no challan sent to that sales point since the indent date. Approved: supplied by a challan.</p></div>
+      <div class="dcard"><div class="dc-h"><h3>${ALERT_ICON} Low Stock Alerts</h3><a class="lnk" data-go="reorder">View All →</a></div>
+        <div class="tablewrap" style="border:0"><table class="dt"><thead><tr><th>Product</th><th class="n">Current Stock</th><th class="n">Reorder Level</th><th>Status</th></tr></thead><tbody>
+        ${lowRows.slice(0, 5).map(r => `<tr><td><span class="pi">${initial(r.p.name)}</span>${esc(r.p.name)}</td><td class="n" style="white-space:nowrap">${fmt(r.wh + r.sp)} ${esc(unitOf(r.p.id))}${r.tr + r.oo > 0 ? `<br><small class="muted">+${fmt(r.tr + r.oo)} on the way</small>` : ''}</td><td class="n" style="white-space:nowrap">${fmt(Math.ceil(r.D * r.B))} ${esc(unitOf(r.p.id))}</td><td><span class="badge b-do_not_give">Low Stock</span></td></tr>`).join('') || `<tr><td colspan="4" class="muted">${hasFc ? 'No product is below its reorder level.' : 'Forecast data is not available yet.'}</td></tr>`}
+        </tbody></table></div></div></div>
+    <div class="dcard" style="margin-bottom:16px"><div class="dc-h"><h3>Stock &amp; Sales Summary</h3></div><div class="grid">
+      <div class="tile"><small>Warehouse stock, merged (units)</small><b>${fmt(whUnits)}</b></div><div class="tile"><small>All sales points stock (units)</small><b>${fmt(spUnits)}</b></div>
+      <div class="tile"><small>All sales points sales, last ${WINDOW_DAYS} days</small><b>${fmt(spSales)}</b></div><div class="tile"><small>Indents awaiting receipt (all dates)</small><b>${awaiting.count ?? 0}</b></div></div></div>
+    <div class="dcard" style="margin-bottom:16px"><div class="dc-h"><h3>Sales Points — stock vs sales</h3></div>
       <div class="tablewrap"><table><thead><tr><th>Sales Point</th><th class="n">Live Stock</th><th class="n">Sales (${WINDOW_DAYS}d)</th><th class="n">Avg Daily Sales (actual)</th><th class="n">Forecast Demand / Day</th><th class="n">Days of Cover (forecast)</th></tr></thead><tbody>
       ${sps.map(l => { const u = unitsByLoc.get(l.id) || 0, s = salesByLoc.get(l.id) || 0, d = Engine.locTotal(snap, l.id);
         return `<tr><td>${esc(l.name)}</td><td class="n">${fmt(u)}</td><td class="n">${fmt(s)}</td><td class="n">${fmt(s / WINDOW_DAYS)}</td><td class="n">${hasFc ? fmt(d) : '—'}</td><td class="n">${hasFc ? (Engine.cover(u, d) ?? '—') : '—'}</td></tr>`; }).join('')}
       </tbody></table></div></div>
-    <div class="card"><h3>Warehouses</h3>
-      <div class="tablewrap"><table><thead><tr><th>Warehouse</th><th class="n">Live Stock (units)</th><th class="n">Products in stock</th></tr></thead><tbody>
-      ${whs.map(l => `<tr><td>${esc(l.name)}</td><td class="n">${fmt(unitsByLoc.get(l.id) || 0)}</td><td class="n">${prodsIn(l.id)}</td></tr>`).join('')}
-      <tr class="total"><td>Merged total</td><td class="n">${fmt(whUnits)}</td><td></td></tr>
+    <div class="dcard"><div class="dc-h"><h3>Warehouses</h3></div>
+      <div class="tablewrap"><table><thead><tr><th>Warehouse</th><th class="n">Live Stock (units)</th><th class="n">Products in stock</th><th class="n">Stock value (MRP)</th></tr></thead><tbody>
+      ${whs.map(l => `<tr><td>${esc(l.name)}</td><td class="n">${fmt(unitsByLoc.get(l.id) || 0)}</td><td class="n">${prodsIn(l.id)}</td><td class="n">${fmt(byWh.get(l.id) || 0)}</td></tr>`).join('')}
+      <tr class="total"><td>Merged total</td><td class="n">${fmt(whUnits)}</td><td></td><td class="n">${fmt([...byWh.values()].reduce((a, b) => a + b, 0))}</td></tr>
       </tbody></table></div></div>`;
-  v.innerHTML = dash + '<h3 class="dsec">Stock &amp; Sales Summary</h3>' + legacy;
+  // ---------- events ----------
   v.querySelectorAll('[data-go]').forEach(a => a.onclick = () => showTab(a.dataset.go));
-  v.querySelectorAll('[data-ind]').forEach(b => b.onclick = async () => { await showTab('indent'); showIndent(b.dataset.ind); window.scrollTo({top: 0, behavior: 'smooth'}); });
-  const setR = () => { if ($('#drF').value && $('#drT').value && $('#drF').value <= $('#drT').value) { dbRange = {from: $('#drF').value, to: $('#drT').value}; showTab('dashboard'); } };
-  $('#drF').onchange = setR; $('#drT').onchange = setR;
+  v.querySelectorAll('[data-ind]').forEach(a => a.onclick = async () => { await showTab('indent'); try { await showIndent(a.dataset.ind); } catch (e) { toast(e.message || String(e), 'err'); } });
+  const pop = $('#rgPop'); $('#rgBtn').onclick = e => { e.stopPropagation(); pop.classList.toggle('open'); };
+  pop.onclick = e => e.stopPropagation(); document.addEventListener('click', function close() { if (!document.body.contains(pop)) return document.removeEventListener('click', close); pop.classList.remove('open'); });
+  pop.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { dashS.preset = b.dataset.p; [dashS.from, dashS.to] = dashPreset(b.dataset.p); showTab('dashboard'); });
+  $('#rgGo').onclick = () => { const a = $('#rgF').value, b = $('#rgT').value; if (!a || !b || a > b) return toast('Choose a valid date range.', 'err'); dashS.preset = 'custom'; dashS.from = a; dashS.to = b; showTab('dashboard'); };
+  refreshBell(snap, true);
 }
 
-// ---- dashboard helpers (inline SVG charts, no extra libraries) ----
-let dbRange = null;
-const monthEnd = d => new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 0)).toISOString().slice(0, 10);
-const whUnits0 = rows => rows.reduce((a, r) => a + Math.max(0, Number(r.live_qty)), 0);
-const dTk = n => '৳ ' + fmt(Math.round(n));
-const dK = n => n >= 1e6 ? +(n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? +(n / 1e3).toFixed(0) + 'K' : String(+n.toFixed(1));
-const dNice = m => { if (!(m > 0)) return 1; const e = Math.pow(10, Math.floor(Math.log10(m))), f = m / e; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * e; };
-function dSpark(vals, color) {
-  if (vals.length < 2) return '';
-  const mx = Math.max(1, ...vals), pts = vals.map((v, i) => `${(i * 70 / (vals.length - 1)).toFixed(1)},${(26 - v / mx * 22).toFixed(1)}`).join(' ');
-  return `<svg class="sp" width="76" height="30" viewBox="-3 0 76 30"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/></svg>`;
-}
-function dDonut(parts, total) {
-  const C = 2 * Math.PI * 70; let off = 0;
-  const ring = total > 0 ? parts.map(p => { const len = p.val / total * C, o = off; off += len; return `<circle cx="100" cy="100" r="70" fill="none" stroke="${p.color}" stroke-width="28" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-o}" transform="rotate(-90 100 100)"><title>${esc(p.label)}: ${dTk(p.val)}</title></circle>`; }).join('') : '<circle cx="100" cy="100" r="70" fill="none" stroke="#e3eee8" stroke-width="28"/>';
-  const leg = parts.map(p => `<div><i style="background:${p.color}"></i>${esc(p.label)}<span>${dTk(p.val)} · ${total > 0 ? (p.val / total * 100).toFixed(1) : 0}%</span></div>`).join('') || '<div class="muted">No stock recorded yet.</div>';
-  return `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><svg viewBox="0 0 200 200" width="170" height="170">${ring}<text x="100" y="98" text-anchor="middle" font-size="15" font-weight="700" fill="#12281f">${fmt(Math.round(total))}</text><text x="100" y="114" text-anchor="middle" font-size="9" fill="#587068">Total Stock Value</text></svg><div class="dleg" style="flex:1;min-width:150px">${leg}</div></div>`;
-}
-function dLine(labels, series) {
-  const W = 520, H = 230, L = 34, Rr = 12, T = 14, B = 34, n = labels.length, mx = dNice(Math.max(1, ...series.flatMap(s => s.vals)));
-  const x = i => L + (n > 1 ? i * (W - L - Rr) / (n - 1) : (W - L - Rr) / 2), y = v => T + (H - T - B) * (1 - v / mx);
-  let g = ''; for (let k = 0; k <= 4; k++) { const v = mx * k / 4; g += `<line x1="${L}" x2="${W - Rr}" y1="${y(v)}" y2="${y(v)}" stroke="#e3eee8"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="10" fill="#587068">${dK(v)}</text>`; }
-  labels.forEach((l, i) => g += `<text x="${x(i)}" y="${H - 12}" text-anchor="middle" font-size="10" fill="#587068">${esc(l)}</text>`);
-  series.forEach((s, si) => {
-    const pts = s.vals.map((v, i) => x(i) + ',' + y(v)).join(' ');
-    if (si === 0 && n > 1) g += `<polygon points="${x(0)},${y(0)} ${pts} ${x(n - 1)},${y(0)}" fill="${s.color}" opacity=".10"/>`;
-    g += `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2.4"/>` + s.vals.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3.8" fill="#fff" stroke="${s.color}" stroke-width="2"><title>${esc(s.name)}: ${v}</title></circle>`).join('');
-  });
-  return `<svg viewBox="0 0 ${W} ${H}">${g}</svg>`;
-}
-function dBars(items) {
-  if (!items.length) return '<div class="muted">No warehouse found.</div>';
-  const W = 420, H = 230, L = 40, T = 14, B = 52, n = items.length, mx = dNice(Math.max(1, ...items.map(i => i.val))), bw = Math.min(54, (W - L) / n * .55), COL = ['#13682f', '#2faa4a', '#8bdc6a', '#3b9cf5', '#f59e0b', '#8b5cf6'];
-  let g = ''; for (let k = 0; k <= 4; k++) { const v = mx * k / 4, y = T + (H - T - B) * (1 - k / 4); g += `<line x1="${L}" x2="${W}" y1="${y}" y2="${y}" stroke="#e3eee8"/><text x="${L - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="#587068">${dK(v)}</text>`; }
-  items.forEach((it, i) => { const cx = L + (W - L) / n * (i + .5), h = (H - T - B) * it.val / mx, nm = it.label.length > 14 ? it.label.slice(0, 13) + '…' : it.label;
-    g += `<rect x="${cx - bw / 2}" y="${H - B - h}" width="${bw}" height="${h}" rx="3" fill="${COL[i % 6]}"><title>${esc(it.label)}: ${dTk(it.val)}</title></rect><text x="${cx}" y="${H - B + 15}" text-anchor="middle" font-size="10" font-weight="600" fill="#12281f">${esc(nm)}</text><text x="${cx}" y="${H - B + 29}" text-anchor="middle" font-size="10" fill="#587068">${dTk(it.val)}</text>`; });
-  return `<svg viewBox="0 0 ${W} ${H}">${g}</svg>`;
-}
-
-
-// ================================ TEST DATA (testing helper; remove the TABS line + this block when testing is over)
-const TD_SQL = `-- STEP 1 - run once in Supabase > SQL Editor.
--- Deletes ONLY transaction data (opening stock, sales, purchases and everything that hangs off the stock ledger).
--- KEEPS: locations, warehouses, sales points, products, suppliers, planning rules, season events, users/profiles, audit log.
--- This cannot be undone. Backup copies are saved first as bak_<table>_<date>.
-do $$
-declare t text; d text := to_char(now(),'YYYYMMDD_HH24MI');
-begin
-  foreach t in array array['daily_sales','stock_ledger','stock_batches','po_receipt_lines','po_receipts','po_lines','purchase_orders',
-                           'challan_lines','challans','indent_lines','indents','stock_doc_lines','stock_docs']
-  loop
-    if to_regclass('public.'||t) is not null then
-      execute format('create table public.%I as select * from public.%I', 'bak_'||t||'_'||d, t);
-    end if;
-  end loop;
-end $$;
-
-truncate table daily_sales, stock_ledger, stock_batches, po_receipt_lines, po_receipts, po_lines, purchase_orders,
-               challan_lines, challans, indent_lines, indents, stock_doc_lines, stock_docs cascade;
-
-update locations set opening_date = null;   -- lets Opening Stock be entered again
-select 'done' as status;
-`;
-async function renderTestData(v) {
-  const F = '2026-11-01', T = '2026-11-22';
-  v.innerHTML = `<h2>🧪 Test Data</h2><p class="muted">Fills opening stock, sales (${F} to ${T}) and purchases with simple numbers so every module can be tested. Location, warehouse, sales point, product and supplier names are never changed.</p>
-  <div class="card"><h3>Step 1 — Clear old data (skip if you already ran it, or if the tables are already empty)</h3><p class="muted">Run this once in <b>Supabase → SQL Editor</b> (the app cannot delete ledger rows). It keeps a backup copy of every table it clears.</p>
-  <textarea id="tdSql" readonly style="width:100%;height:150px;font:12px ui-monospace,Consolas,monospace">${esc(TD_SQL)}</textarea><div class="row" style="margin-top:8px"><button class="btn alt" id="tdCopy">Copy SQL</button></div></div>
-  <div class="card" style="margin-top:14px"><h3>Step 2 — Generate test data for ALL modules</h3>
-  <div id="tdState" style="margin-bottom:8px"></div><label>Random seed (same seed = same numbers; type another number for a different random set)</label><input type="number" id="tdSeed" value="20261122" style="max-width:200px;margin-bottom:8px"><br><button class="btn" id="tdGo">Generate test data for all modules</button><div id="tdLog" style="margin-top:10px;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap"></div></div>
-  <div class="card" style="margin-top:14px"><h3>Forecast walkthrough (live from the planner, for 8 sample products)</h3><p class="muted">Use after the data is generated. Shows how the planner turns sales into demand, reorder level and a suggested order. Low products are listed first.</p><button class="btn alt" id="tdFc">Show forecast walkthrough</button><div id="tdFcOut" style="margin-top:10px"></div></div>
-  <div class="card" style="margin-top:14px"><h3>How the random numbers are made</h3>
-  <table style="min-width:0"><tbody>
-  <tr><td><b>Sales</b> (1–22 Nov)</td><td>Every product has its own demand level (fast / medium / slow / very slow) and its own trend (growing or falling). Every sales point has its own size, and about 8% of product–outlet pairs never sell. Each day is random (Poisson), Friday and Saturday are higher, ~10% of products get a 3-day promo spike. Rows are different for every location, product and day.</td></tr>
-  <tr><td><b>Opening stock</b> (1 Nov)</td><td>Sales point: enough to cover that outlet's sales plus a random 12–50 days of cover (15% of items only 2–6 days → low-stock cases). Warehouse: network demand × random 25–90 days (20% only 4–10 days), split randomly across the warehouses.</td></tr>
-  <tr><td><b>Purchases</b></td><td>Each supplier gets 3–4 POs on random days with a random ~65% of its products, quantity = 20–60 days of network demand, unit cost from the product's MRP (±5% per PO), random warehouse. POs whose delivery date is after 22 Nov, and ~20% of the rest, stay open; ~25% of received POs are partial.</td></tr>
-  <tr><td><b>Other modules</b></td><td>Indents (last 2 pending), challans (last 2 in transit), warehouse transfers, returns, adjustments, QC fail and physical counts — random products and quantities, always kept below the stock that really exists.</td></tr>
-  </tbody></table>
-  <div class="row" style="margin-top:10px"><button class="btn alt" data-go="plan">Open Distribution &amp; Forecasting</button><button class="btn alt" data-go="reorder">Open Reorder Planning</button><button class="btn alt" data-go="dashboard">Open Dashboard</button></div></div>`;
-  v.querySelectorAll('[data-go]').forEach(b => b.onclick = () => showTab(b.dataset.go));
-  (async () => { try { const c = async t => (await db.from(t).select('id', {count: 'exact', head: true})).count || 0; const [x, y, z] = await Promise.all([c('stock_ledger'), c('daily_sales'), c('purchase_orders')]);
-    note($('#tdState'), x || y || z ? `<b>Old data is still in the database</b> (ledger ${x}, sales ${y}, POs ${z}). Generate will not write anything until Step 1 (the SQL) has run successfully. Screens showing the same numbers for every location are this old data.` : '<b>Database is empty — ready.</b> Press Generate.', x || y || z ? 'err' : 'info'); } catch (e) {} })();
-  $('#tdCopy').onclick = async () => { try { await navigator.clipboard.writeText(TD_SQL); } catch (e) { $('#tdSql').select(); document.execCommand('copy'); } toast('SQL copied. Paste it in Supabase → SQL Editor and run it.'); };
-  $('#tdFc').onclick = async () => {
-    const o = $('#tdFcOut'); o.textContent = 'Loading…';
-    try {
-      try { Hub.invalidate(); } catch (e) {} const snap = await Hub.get(0);
-      const act = products.filter(p => p.is_active).slice().sort((a, b) => a.name.localeCompare(b.name)), sample = [...act.filter((p, i) => i % 7 === 0).slice(0, 4), ...act.filter((p, i) => i % 7 !== 0).slice(0, 4)];
-      const rows = sample.map(p => { const r = Engine.procure(p, snap), rl = Math.ceil((r.D || 0) * (r.L + r.safety)); return `<tr><td>${esc(p.name)}</td><td class="n">${(snap.rateProd.get(p.id) || 0).toFixed(1)}</td><td class="n">${(r.D || 0).toFixed(1)}</td><td class="n">${r.L}</td><td class="n">${r.safety}</td><td class="n">${fmt(rl)}</td><td class="n">${fmt(Math.round(r.pos))}</td><td class="n">${fmt(Math.round(r.qty || 0))}</td><td>${esc(r.status)}</td></tr>`; }).join('');
-      o.innerHTML = `<div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Product</th><th class="n">Actual sales/day (network)</th><th class="n">Forecast demand/day</th><th class="n">Lead + clearance days</th><th class="n">Safety days</th><th class="n">Reorder level = demand × (lead + safety)</th><th class="n">Stock position (warehouse + sales points + transit + on order)</th><th class="n">Suggested order qty</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
-        <p class="muted">Flow: daily sales (1–22 Nov) → actual sales/day → forecast demand/day (with planning rules and season events applied) → stock position compared with the reorder level → suggested order. Change a rule in Planning Rules, or add a season event, then press the button again to see the numbers move.</p>`;
-    } catch (e) { o.innerHTML = `<div class="note err">${esc(e.message || e)}</div>`; }
-  };
-  const log = m => { $('#tdLog').textContent += m + '\n'; };
-  $('#tdGo').onclick = async () => {
-    const btn = $('#tdGo'); $('#tdLog').textContent = ''; btn.disabled = true;
-    let seed = (Number($('#tdSeed').value) || 20261122) | 0;
-    const rnd = () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-    const rr = (a, b) => a + rnd() * (b - a), ri = (a, b) => Math.floor(rr(a, b + 1)), rt = (x, n) => Math.round(x / n) * n, pick1 = a => a[Math.floor(rnd() * a.length)];
-    const shuffle = a => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; };
-    const pois = m => { if (m <= 0) return 0; if (m > 30) return Math.max(0, Math.round(m + Math.sqrt(m) * (rnd() + rnd() + rnd() - 1.5) * 2)); const L = Math.exp(-m); let k = 0, p = 1; do { k++; p *= rnd(); } while (p > L); return k - 1; };
-    const log = m => { $('#tdLog').textContent += m + '\n'; };
-    try {
-      const cnt = async t => (await db.from(t).select('id', {count: 'exact', head: true})).count || 0;
-      const [nl, ns, np] = await Promise.all([cnt('stock_ledger'), cnt('daily_sales'), cnt('purchase_orders')]);
-      if (nl || ns || np) throw new Error(`Old data still exists (ledger ${nl}, sales ${ns}, POs ${np}). Run Step 1 (SQL) first, then reload this page.`);
-      const prods = products.filter(p => p.is_active).slice().sort((a, b) => a.name.localeCompare(b.name));
-      const act = locations.filter(l => l.is_active !== false), whs = act.filter(l => l.type === 'warehouse'), sps = act.filter(l => l.type === 'sales_point');
-      if (!prods.length || !whs.length || !sps.length) throw new Error('Need at least one active product, warehouse and sales point.');
-      const F = '2026-11-01', T = '2026-11-22', dates = Array.from({length: 22}, (_, k) => addDays(F, k)), dayD = n => addDays(F, n - 1);
-      const batch = async (rows, fn) => { for (let i = 0; i < rows.length; i += 500) { const r = await fn(rows.slice(i, i + 500)); if (r.error) throw r.error; } };
-      // ---- demand model: every product / sales point / day is different ----
-      const base = new Map(prods.map(p => { const u = rnd(); return [p.id, {b: u < .15 ? rr(4, 9) : u < .6 ? rr(1.5, 4) : u < .9 ? rr(.4, 1.5) : rr(.1, .4), tr: rr(-.015, .03), spike: rnd() < .1 ? ri(5, 17) : -1}]; }));
-      const size = new Map(sps.map(l => [l.id, rr(.6, 1.5)])), mean = new Map(), dnet = new Map(), sold = new Map(), sl = [];
-      sps.forEach(l => prods.forEach(p => mean.set(l.id + '|' + p.id, rnd() < .08 ? 0 : base.get(p.id).b * size.get(l.id) * rr(.6, 1.4))));
-      sps.forEach(l => prods.forEach(p => { const k = l.id + '|' + p.id, m = mean.get(k), bp = base.get(p.id); let tot = 0; dnet.set(p.id, (dnet.get(p.id) || 0) + m);
-        if (m > 0) dates.forEach((date, di) => { const dow = new Date(date + 'T00:00:00Z').getUTCDay(), wf = dow === 5 ? 1.35 : dow === 6 ? 1.25 : 1, sp = bp.spike >= 0 && di >= bp.spike && di < bp.spike + 3 ? 2 : 1, q = pois(m * (1 + bp.tr * (di - 11)) * wf * sp); if (q > 0) { sl.push({location_id: l.id, product_id: p.id, sale_date: date, qty: q}); tot += q; } });
-        sold.set(k, tot); }));
-      // ---- 1) opening stock (random cover days; some products deliberately low) ----
-      const stock = new Map(), op = [], addOp = (loc, pid, q) => { q = Math.round(q); if (q > 0) { op.push({location_id: loc, product_id: pid, entry_date: F, entry_type: 'opening', qty: q}); stock.set(loc + '|' + pid, q); } };
-      sps.forEach(l => prods.forEach(p => { const k = l.id + '|' + p.id, m = mean.get(k), cover = rnd() < .15 ? rr(2, 6) : rr(12, 50); addOp(l.id, p.id, (sold.get(k) || 0) + (m > 0 ? m * cover : rnd() < .3 ? ri(1, 15) : 0)); stock.set(k, (stock.get(k) || 0) - (sold.get(k) || 0)); }));
-      prods.forEach(p => { const D = dnet.get(p.id), tot = D > 0 ? D * (rnd() < .2 ? rr(4, 10) : rr(25, 90)) : ri(100, 800), w = whs.map(() => rnd() < .05 ? 0 : rnd() + .2), ws = w.reduce((a, b) => a + b, 0) || 1; whs.forEach((l, i) => addOp(l.id, p.id, rt(tot * w[i] / ws, 10))); });
-      await batch(op, r => db.from('stock_ledger').insert(r));
-      const ud = await db.from('locations').update({opening_date: F}).in('id', act.map(l => l.id)); if (ud.error) throw ud.error;
-      log(`✔ Opening stock: ${op.length} rows (different for every location and product)`);
-      // ---- 2) sales ----
-      await batch(sl, r => db.from('daily_sales').upsert(r, {onConflict: 'location_id,product_id,sale_date'}));
-      log(`✔ Sales: ${sl.length} rows (${F} → ${T}; weekends higher, trends, promo spikes, zero-sale days)`);
-      // ---- 3) purchases through the app's own PO functions ----
-      const sq = await db.from('suppliers').select('*').eq('is_active', true); if (sq.error) throw sq.error;
-      const supBy = new Map(sq.data.map(s => [norm(s.name), s])), groups = new Map();
-      prods.forEach(p => { const s = p.supplier && supBy.get(norm(p.supplier)); if (s) { if (!groups.has(s.id)) groups.set(s.id, {s, ps: []}); groups.get(s.id).ps.push(p); } });
-      const skipped = prods.filter(p => !(p.supplier && supBy.get(norm(p.supplier)))).length;
-      const cost = new Map(prods.map(p => [p.id, Math.round((Number(p.mrp) > 0 ? p.mrp * rr(.45, .7) : rr(60, 600)) * 100) / 100]));
-      let made = 0, got = 0, part = 0;
-      for (const {s, ps} of groups.values()) for (let k = ri(3, 4); k > 0; k--) {
-        const chosen = ps.filter(() => rnd() < .65); if (!chosen.length) continue;
-        const poDay = ri(1, 20), wh = pick1(whs), rcDay = poDay + ri(3, 9), receive = rcDay <= 22 && rnd() < .8;
-        const lines = chosen.map(p => ({product_id: p.id, qty: Math.max(10, rt((dnet.get(p.id) || ri(3, 15)) * rr(20, 60), 10)), unit_cost: Math.round(cost.get(p.id) * rr(.97, 1.05) * 100) / 100}));
-        const c = await db.rpc('create_po', {p_supplier: s.id, p_warehouse: wh.id, p_date: dayD(poDay), p_expected: addDays(dayD(poDay), s.lead_time_days || 10), p_note: 'TEST DATA', p_lines: lines}); if (c.error) throw new Error(`${s.name}: ${c.error.message}`);
-        const q = await db.from('purchase_orders').select('id').eq('po_no', c.data), id = q.data && q.data[0] ? q.data[0].id : c.data;
-        const o = await db.rpc('po_set_status', {p_po: id, p_action: 'order'}); if (o.error) throw o.error; made++;
-        let tag = 'ordered (open)';
-        if (receive) { const partial = rnd() < .25, rl = lines.map(l => ({product_id: l.product_id, qty: partial ? Math.round(l.qty * rr(.6, 1)) : l.qty, batch_no: `B${poDay}-${ri(100, 999)}`, expiry_date: addDays(T, ri(150, 900))})).filter(l => l.qty > 0);
-          const r = await db.rpc('receive_po', {p_po: id, p_date: dayD(rcDay), p_ref: 'TEST-' + c.data, p_note: 'TEST DATA', p_lines: rl}); if (r.error) throw new Error(`Receive ${c.data}: ${r.error.message}`);
-          rl.forEach(l => stock.set(wh.id + '|' + l.product_id, (stock.get(wh.id + '|' + l.product_id) || 0) + l.qty)); got++; tag = (partial ? 'partly ' : '') + 'received ' + dayD(rcDay); if (partial) part++; }
-        log(`  PO ${c.data} · ${s.name} → ${wh.name} · PO ${dayD(poDay)} · ${lines.length} products · ${tag}`);
-      }
-      log(`✔ Purchases: ${made} POs, ${got} received (${part} partial), ${made - got} open` + (skipped ? ` · ${skipped} product(s) skipped (no matching supplier in Master Data)` : ''));
-      // ---- 4) all other modules (random, and always within the stock that exists) ----
-      const sellable = l => prods.filter(p => mean.get(l.id + '|' + p.id) > 0), sk = (loc, p) => loc.id + '|' + p.id, have = (loc, p) => stock.get(sk(loc, p)) || 0;
-      const move = (loc, p, q) => stock.set(sk(loc, p), have(loc, p) + q);
-      const bestWh = items => whs.slice().sort((a, b) => items.reduce((t, p) => t + have(b, p), 0) - items.reduce((t, p) => t + have(a, p), 0))[0];
-      const mk = (src, items, want) => items.map(p => { let q = Math.min(Math.round(want(p)), Math.floor(have(src, p) * .3)); if (q >= 10) q = Math.floor(q / 5) * 5; return {p, q}; }).filter(x => x.q >= 1);
-      const rp = async (n, a) => { const r = await db.rpc(n, a); if (r.error) throw new Error(r.error.message); return r.data; };
-      const last = async t => { let r = await db.from(t).select('id').order('created_at', {ascending: false}).limit(1); if (r.error || !r.data.length) r = await db.from(t).select('id').order('id', {ascending: false}).limit(1); return r.data[0].id; };
-      const step = async (label, fn) => { try { const n = await fn(); log('✔ ' + label + (n != null ? ': ' + n : '')); } catch (e) { log('✖ ' + label + ' — ' + (e.message || e)); } };
-      const L = x => x.map(({p, q}) => ({product_id: p.id, qty: q}));
-      await step('Indents (received + pending)', async () => { let n = 0, pend = 0; const ls = shuffle(sps).slice(0, Math.min(6, sps.length));
-        for (const [k, l] of ls.entries()) { const rc = k < ls.length - 2, items = shuffle(sellable(l)).slice(0, ri(10, 25)), wh = bestWh(items), ln = mk(wh, items, p => Math.max(5, rt(mean.get(l.id + '|' + p.id) * rr(8, 20), 5))); if (!ln.length) continue;
-          const id = await rp('create_indent', {p_location_id: l.id, p_indent_date: dayD(rc ? ri(5, 17) : ri(19, 21)), p_odoo_ref: 'TEST-IND-' + (k + 1), p_lines: ln.map(x => ({product_name: x.p.name, qty: x.q}))}); n++;
-          if (rc) { await rp('receive_indent', {p_indent_id: id, p_source_warehouse_id: wh.id, p_overrides: L(ln)}); ln.forEach(x => { move(wh, x.p, -x.q); move(l, x.p, x.q); }); } else pend++; }
-        return `${n} created, ${pend} pending`; });
-      await step('Delivery challans (received + in transit)', async () => { let n = 0; const ls = shuffle(sps).slice(0, Math.min(5, sps.length));
-        for (const [k, l] of ls.entries()) { const rc = k < ls.length - 2, items = shuffle(sellable(l)).slice(0, ri(8, 20)), wh = bestWh(items), ln = mk(wh, items, p => Math.max(5, rt(mean.get(l.id + '|' + p.id) * rr(7, 18), 5))); if (!ln.length) continue;
-          await rp('create_challan', {p_from: wh.id, p_to: l.id, p_date: dayD(rc ? ri(8, 18) : ri(19, 21)), p_note: 'TEST DATA', p_lines: L(ln)}); n++;
-          if (rc) await rp('receive_challan', {p_challan: await last('challans'), p_lines: L(ln), p_note: null});
-          ln.forEach(x => { move(wh, x.p, -x.q); if (rc) move(l, x.p, x.q); }); }
-        return `${n} created`; });
-      if (whs.length > 1) await step('Warehouse transfers (received + in transit)', async () => { let n = 0;
-        for (let k = 0; k < 3; k++) { const src = pick1(whs), dst = pick1(whs.filter(w => w !== src)), rc = k < 2, ln = mk(src, shuffle(prods).slice(0, ri(5, 10)), p => have(src, p) * rr(.08, .2)); if (!ln.length) continue;
-          await rp('create_stock_transfer', {p_type: 'transfer', p_from: src.id, p_to: dst.id, p_date: dayD(rc ? ri(10, 17) : ri(19, 21)), p_reason: 'Rebalancing between warehouses', p_note: 'TEST DATA', p_lines: L(ln)});
-          if (rc) await rp('receive_stock_doc', {p_doc: await last('stock_docs'), p_lines: L(ln), p_note: null});
-          ln.forEach(x => { move(src, x.p, -x.q); if (rc) move(dst, x.p, x.q); }); n++; }
-        return `${n} created`; });
-      await step('Returns (sales point → warehouse, received)', async () => { let n = 0;
-        for (const l of shuffle(sps).slice(0, Math.min(2, sps.length))) { const wh = pick1(whs), ln = shuffle(prods.filter(p => have(l, p) >= 10)).slice(0, ri(3, 6)).map(p => ({p, q: Math.max(1, Math.floor(have(l, p) * rr(.05, .15)))})); if (!ln.length) continue;
-          await rp('create_stock_transfer', {p_type: 'return', p_from: l.id, p_to: wh.id, p_date: dayD(ri(14, 20)), p_reason: pick1(['Excess stock', 'Near expiry', 'Damaged / defective']), p_note: 'TEST DATA', p_lines: L(ln)});
-          await rp('receive_stock_doc', {p_doc: await last('stock_docs'), p_lines: L(ln), p_note: null}); ln.forEach(x => { move(l, x.p, -x.q); move(wh, x.p, x.q); }); n++; }
-        return `${n} created`; });
-      await step('Adjustments (+ / −)', async () => { let n = 0;
-        for (const plus of [true, false, false]) { const l = pick1(sps), ln = shuffle(prods).slice(0, ri(3, 5)).map(p => ({p, q: plus ? ri(2, 12) : Math.min(ri(1, 6), Math.floor(have(l, p) * .3))})).filter(x => x.q >= 1); if (!ln.length) continue;
-          await rp('post_stock_adjustment', {p_type: 'adjustment', p_location: l.id, p_date: dayD(ri(8, 20)), p_reason: plus ? 'Found extra stock' : 'Stock correction', p_note: 'TEST DATA', p_lines: ln.map(x => ({product_id: x.p.id, qty: plus ? x.q : -x.q}))}); ln.forEach(x => move(l, x.p, plus ? x.q : -x.q)); n++; }
-        return `${n} posted`; });
-      await step('QC Fail', async () => { let n = 0;
-        for (const l of [pick1(whs), pick1(whs), pick1(sps)]) { const ln = shuffle(prods).slice(0, ri(2, 4)).map(p => ({p, q: Math.min(l.type === 'warehouse' ? ri(5, 40) : ri(1, 3), Math.floor(have(l, p) * .3))})).filter(x => x.q >= 1); if (!ln.length) continue;
-          await rp('post_stock_adjustment', {p_type: 'damage', p_location: l.id, p_date: dayD(ri(10, 21)), p_reason: pick1(['QC failed', 'Damaged', 'Expired']), p_note: 'TEST DATA', p_lines: L(ln)}); ln.forEach(x => move(l, x.p, -x.q)); n++; }
-        return `${n} posted`; });
-      await step('Physical counts (some match, some differ)', async () => { let n = 0;
-        for (const l of shuffle(sps).slice(0, Math.min(2, sps.length))) { const ids = shuffle(sellable(l)).slice(0, 5).map(p => p.id), lv = await db.from('v_live_stock').select('product_id,live_qty').eq('location_id', l.id).in('product_id', ids); if (lv.error) throw lv.error; if (!lv.data.length) continue;
-          await rp('post_stock_count', {p_location: l.id, p_date: T, p_note: 'TEST DATA', p_lines: lv.data.map(r => ({product_id: r.product_id, counted_qty: Math.max(0, Math.floor(Number(r.live_qty)) + pick1([-4, -2, -1, 0, 0, 1, 2]))}))}); n++; }
-        return `${n} posted`; });
-      try { Hub.invalidate(); } catch (e) {}
-      toast('Random test data ready. Open any module to check.');
-    } catch (e) { log('✖ ' + (e.message || e)); toast('Stopped: ' + (e.message || e), 'err'); }
-    btn.disabled = false;
-  };
-}
 
 // ================================ LIVE STOCK ================================
 async function renderStock(v) {
@@ -779,40 +806,90 @@ async function renderStock(v) {
 
 // ============================= INDENT MANAGEMENT =============================
 async function renderIndent(v) {
-  const sps = locations.filter(l => l.type === 'sales_point'), whs = locations.filter(l => l.type === 'warehouse');
+  const sps = locations.filter(l => l.type === 'sales_point'), whs = locations.filter(l => l.type === 'warehouse'), act = products.filter(p => p.is_active), central = isCentral();
+  let snap = null; try { snap = await Hub.get(); } catch (e) { snap = null; }
+  const hasFc = () => snap && !snap.missing.includes('forecast data');
   v.innerHTML = `<div class="card"><h2>New Indent</h2>
-    <p class="sub">Select the sales point, upload the indent sheet received from Odoo, and the system will recommend the quantity to issue for each product.</p>
+    <p class="sub">Select the sales point, then enter the indent <b>line by line</b> (best for a small indent) or upload the sheet received from Odoo. For every product the screen shows the sales point stock, the warehouse stock and the sales rate, and after <b>Analyze Indent</b> the system recommends the quantity to issue product by product.</p>
     <div class="row">
       <div><label>Sales point</label><select id="inLoc">${sps.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>
       <div><label>Indent date</label><input type="date" id="inDate" value="${today()}"></div>
-      <div><label>Odoo reference (optional)</label><input type="text" id="inRef"></div>
-      <div><label>Indent sheet (.xlsx)</label><input type="file" id="inFile" accept=".xlsx,.xls,.csv"></div>
-      <button class="btn" id="inGo">Analyze Indent</button>
-      <button class="btn alt" id="inTpl">Download Template</button>
-    </div>
-    <div class="note info">Warehouse stock used for the decision is the merged live stock of: <b>${whs.map(l => esc(l.name)).join(', ') || 'no warehouse'}</b>.</div>
-    <div id="inMsg"></div></div>
+      <div><label>Odoo reference (optional)</label><input type="text" id="inRef"></div></div>
+    <div class="row" style="margin:14px 0 8px"><button class="btn" id="inM1" type="button">Add products manually</button><button class="btn alt" id="inM2" type="button">Upload sheet</button></div>
+    <div id="inManual">
+      <datalist id="inPl">${act.map(p => `<option value="${esc(p.name)}">`).join('')}</datalist>
+      <div class="tablewrap"><table style="min-width:760px"><thead><tr><th>#</th><th>Product</th><th class="n">Indent Qty</th><th class="n">Sales point stock</th>${central ? '<th class="n">Warehouse stock</th>' : ''}<th class="n">Avg daily sales</th><th class="n">Days of cover</th><th>Check</th><th></th></tr></thead><tbody id="inLines"></tbody></table></div>
+      <div class="row" style="margin-top:10px"><button class="btn alt" type="button" id="inAdd">+ Add line</button><span class="muted">Press Enter in the quantity box to add the next line.</span><span id="inTot" style="margin-left:auto;font-weight:700;color:var(--deep)"></span></div></div>
+    <div id="inUpload" style="display:none"><div class="row"><div><label>Indent sheet (.xlsx)</label><input type="file" id="inFile" accept=".xlsx,.xls,.csv"></div><button class="btn alt" id="inTpl" type="button">Download Template</button></div>
+      <p class="sub" style="margin:8px 0 0">Columns: <b>S/N</b> (just a row number), <b>Product Name</b>, <b>Indent Qty</b>. The product is matched by its name, so no product code is needed.</p></div>
+    <div class="note info" style="margin-top:12px">${central ? `Warehouse stock used for the decision is the merged live stock of: <b>${whs.map(l => esc(l.name)).join(', ') || 'no warehouse'}</b>.` : 'The system compares your request with your stock and sales rate.'}</div>
+    <div id="inMsg"></div><div class="row" style="margin-top:6px"><button class="btn" id="inGo">Analyze Indent</button></div></div>
     <div id="inResult"></div><div id="inHistory"></div>`;
-  if (isCentral()) bulkIndent(v, sps);
-  $('#inTpl').onclick = () => downloadSheet('Indent_Template.xlsx', [['Product Name', 'Indent Qty'], [products[0]?.name || 'Product name', 100]]);
+  if (central) bulkIndent(v, sps);
+  let mode = 'manual'; const pm = productMap(), bySku = new Map(products.filter(p => p.sku).map(p => [norm(p.sku), p])), find = t => pm.get(norm(t)) || bySku.get(norm(t)) || null;
+  const setMode = m => { mode = m; $('#inManual').style.display = m === 'manual' ? '' : 'none'; $('#inUpload').style.display = m === 'upload' ? '' : 'none'; $('#inM1').className = 'btn' + (m === 'manual' ? '' : ' alt'); $('#inM2').className = 'btn' + (m === 'upload' ? '' : ' alt'); note($('#inMsg'), ''); };
+  $('#inM1').onclick = () => setMode('manual'); $('#inM2').onclick = () => setMode('upload');
+  const body = $('#inLines');
+  const cols = central ? 9 : 8;
+  const refresh = tr => {   // fills the stock columns of one line from the live data
+    const p = find(tr.querySelector('.ip').value), q = Number(tr.querySelector('.iq').value), loc = $('#inLoc').value, set = (k, t, bad) => { const c = tr.querySelector('.' + k); c.innerHTML = t; };
+    const names = [...body.querySelectorAll('.ip')].map(i => norm(i.value)).filter(Boolean);
+    if (!p) { ['ls', 'ws', 'as', 'dc'].forEach(k => { const c = tr.querySelector('.' + k); if (c) c.textContent = ''; }); tr.querySelector('.ic').innerHTML = tr.querySelector('.ip').value.trim() ? '<span style="color:#b91c1c">Unknown product</span>' : ''; return; }
+    const ls = snap ? (snap.stockLoc.get(loc + '|' + p.id) || 0) : null, ws = snap ? (snap.whProd.get(p.id) || 0) : null, rate = snap && hasFc() ? Engine.locRate(snap, loc, p.id) : null;
+    tr.querySelector('.ls').textContent = ls == null ? '—' : fmt(ls); if (central) tr.querySelector('.ws').textContent = ws == null ? '—' : fmt(ws);
+    tr.querySelector('.as').textContent = rate == null ? '—' : fmt(rate); tr.querySelector('.dc').textContent = rate > 0 ? String(Engine.cover(ls, rate)) : '—';
+    const msg = []; if (names.filter(n => n === norm(p.name)).length > 1) msg.push('<span style="color:#b91c1c">Already in the list</span>');
+    if (q > 0 && central && ws != null && q > ws) msg.push(`<span style="color:#b45309">Warehouse has only ${fmt(ws)}</span>`);
+    if (q > 0 && rate > 0 && ls / rate > 30) msg.push('<span style="color:#b45309">Stock already covers 30+ days</span>');
+    tr.querySelector('.ic').innerHTML = msg.join('<br>') || (q > 0 ? '<span style="color:#15803d">✓</span>' : '');
+  };
+  const totals = () => { const rows = [...body.querySelectorAll('tr')].filter(t => find(t.querySelector('.ip').value) && Number(t.querySelector('.iq').value) > 0); $('#inTot').textContent = `${rows.length} product${rows.length === 1 ? '' : 's'} · ${fmt(rows.reduce((a, t) => a + Number(t.querySelector('.iq').value), 0))} units`; };
+  const renum = () => body.querySelectorAll('tr').forEach((t, i) => t.querySelector('.in').textContent = i + 1);
+  const addLine = (focus = true) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="in"></td><td><input type="text" class="ip" list="inPl" placeholder="Type or pick a product" style="min-width:260px"></td><td class="n"><input type="number" class="iq" min="0" step="any" style="min-width:0;width:100px;text-align:right"></td>
+      <td class="n ls"></td>${central ? '<td class="n ws"></td>' : ''}<td class="n as"></td><td class="n dc"></td><td class="ic" style="font-size:12.5px"></td><td><button class="mini d" type="button" title="Remove this line">✕</button></td>`;
+    body.appendChild(tr); renum();
+    tr.querySelector('.ip').oninput = tr.querySelector('.ip').onchange = () => { body.querySelectorAll('tr').forEach(refresh); totals(); };
+    tr.querySelector('.iq').oninput = () => { refresh(tr); totals(); };
+    tr.querySelector('.iq').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); if (tr === body.lastElementChild) addLine(); else tr.nextElementSibling.querySelector('.ip').focus(); } };
+    tr.querySelector('button').onclick = () => { tr.remove(); if (!body.children.length) addLine(false); renum(); body.querySelectorAll('tr').forEach(refresh); totals(); };
+    if (focus) tr.querySelector('.ip').focus();
+  };
+  $('#inAdd').onclick = () => addLine();
+  $('#inLoc').onchange = () => { body.querySelectorAll('tr').forEach(refresh); totals(); };
+  Hub.onChange(s => { snap = s; body.querySelectorAll('tr').forEach(refresh); });
+  addLine(false); addLine(false); addLine(false);
+  $('#inTpl').onclick = () => downloadSheet('Indent_Template.xlsx', [['S/N', 'Product Name', 'Indent Qty']].concat(act.map((p, i) => [i + 1, p.name, 0])));
   $('#inGo').onclick = async () => {
     const msg = $('#inMsg'), btn = $('#inGo'); note(msg, '');
     try {
-      const f = $('#inFile').files[0]; if (!f) return note(msg, 'Please choose the indent sheet first.', 'warn');
-      const res = matchRows(await readSheet(f), ['Indent Qty', 'Qty', 'Quantity']);
-      if (res.unmatched.length || res.errors.length) return note(msg, problemHtml(res), 'err');
-      if (!res.items.length) return note(msg, 'The sheet contains no indent lines.', 'warn');
+      let items = [];
+      if (mode === 'upload') {
+        const f = $('#inFile').files[0]; if (!f) return note(msg, 'Please choose the indent sheet first.', 'warn');
+        const res = matchRows(await readSheet(f), ['Indent Qty', 'Qty', 'Quantity']);
+        if (res.unmatched.length || res.errors.length) return note(msg, problemHtml(res), 'err');
+        items = res.items.filter(i => i.qty > 0).map(i => ({name: i.product.name, qty: i.qty}));
+        if (!items.length) return note(msg, 'The sheet contains no indent quantities above zero.', 'warn');
+      } else {
+        const errs = [], seen = new Set();
+        [...body.querySelectorAll('tr')].forEach((tr, i) => {
+          const n = tr.querySelector('.ip').value.trim(), qs = tr.querySelector('.iq').value.trim(); if (!n && !qs) return;
+          const p = find(n), q = Number(qs); if (!p) return errs.push(`Line ${i + 1}: "${n || '(blank)'}" is not a product in the master list.`);
+          if (!qs || !Number.isFinite(q) || q <= 0) return errs.push(`Line ${i + 1}: enter a quantity greater than zero for "${p.name}".`);
+          if (seen.has(p.id)) return errs.push(`Line ${i + 1}: "${p.name}" is entered twice. Combine the quantities into one line.`); seen.add(p.id); items.push({name: p.name, qty: q});
+        });
+        if (errs.length) return note(msg, errs.map(esc).join('<br>'), 'err'); if (!items.length) return note(msg, 'Add at least one product with a quantity.', 'warn');
+      }
       btn.disabled = true;
-      const {data, error} = await db.rpc('create_indent', {
-        p_location_id: $('#inLoc').value, p_indent_date: $('#inDate').value, p_odoo_ref: $('#inRef').value || null,
-        p_lines: res.items.map(i => ({product_name: i.product.name, qty: i.qty}))
-      });
+      const {data, error} = await db.rpc('create_indent', {p_location_id: $('#inLoc').value, p_indent_date: $('#inDate').value, p_odoo_ref: $('#inRef').value || null, p_lines: items.map(i => ({product_name: i.name, qty: i.qty}))});
       if (error) throw error;
-      toast('Indent analyzed.'); await showIndent(data); await indentHistory();
+      toast('Indent analyzed.'); await showIndent(data); await indentHistory(); window.scrollTo({top: document.getElementById('inResult').offsetTop - 80, behavior: 'smooth'});
+      if (mode === 'manual') { body.innerHTML = ''; addLine(false); addLine(false); addLine(false); totals(); }
     } catch (e) { note(msg, esc(e.message || e), 'err'); }
     finally { btn.disabled = false; }
   };
-  await indentHistory();
+  totals(); await indentHistory();
 }
 async function indentHistory() {
   const {data, error} = await db.from('indents').select('*').order('created_at', {ascending: false}).limit(20);
@@ -1092,13 +1169,13 @@ async function readBulk(file, sps, qtyNames) {
 // ---------- bulk indent: one date, one workbook, one sheet per sales point ----------
 function bulkIndent(v, sps) {
   v.insertAdjacentHTML('afterbegin', `<div class="card"><h2>Bulk Indent Upload — All Sales Points (one file)</h2>
-    <p class="sub">Pick the indent date and upload one Excel file with <b>one sheet per sales point</b> (sheet name = sales point name; columns <b>Product Code</b>, <b>Product Name</b>, <b>Indent Qty</b>). The indents are saved date-wise and location-wise; the supply decision is made in <b>Distribution &amp; Forecasting</b>.</p>
+    <p class="sub">Pick the indent date and upload one Excel file with <b>one sheet per sales point</b> (sheet name = sales point name; columns <b>S/N</b> (just a row number), <b>Product Name</b>, <b>Indent Qty</b>). Products are matched by name, so no product code is needed; files that still have a Product Code column keep working. The indents are saved date-wise and location-wise; the supply decision is made in <b>Distribution &amp; Forecasting</b>.</p>
     <div class="row"><div><label>Indent date</label><input type="date" id="biDate" value="${today()}"></div>
     <div><label>Workbook (.xlsx)</label><input type="file" id="biFile" accept=".xlsx,.xls"></div>
     <button class="btn" id="biGo">Check File</button><button class="btn alt" id="biTpl">Download Template</button></div><div id="biMsg"></div></div>`);
   $('#biTpl').onclick = () => {
     const wb = XLSX.utils.book_new(), act = products.filter(p => p.is_active);
-    sps.forEach(l => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product Code', 'Product Name', 'Indent Qty']].concat(act.map(p => [p.sku || '', p.name, 0]))), l.name.replace(/[\\\/?*\[\]:]/g, '').slice(0, 31)));
+    sps.forEach(l => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['S/N', 'Product Name', 'Indent Qty']].concat(act.map((p, i) => [i + 1, p.name, 0]))), l.name.replace(/[\\\/?*\[\]:]/g, '').slice(0, 31)));
     XLSX.writeFile(wb, 'Bulk_Indent_All_Outlets_Template.xlsx');
   };
   $('#biGo').onclick = async () => {
@@ -1823,8 +1900,9 @@ const Engine = {
     const lead = p.lead_time_days ?? sup?.lead_time_days ?? 14, clr = p.clearance_days ?? (p.is_import === false ? 0 : FCS.clr), L = lead + clr, review = sup?.review_days ?? 7;
     const safety = ({A: FCS.A, B: FCS.B, C: FCS.C})[cls] ?? 0, M = p.order_months && p.order_months.length && p.order_months.length < 12 ? p.order_months : null;
     const wh = Math.max(0, snap.whProd.get(p.id) || 0), sp = Math.max(0, snap.spProd.get(p.id) || 0), tr = snap.transitProd.get(p.id) || 0, oo = snap.onOrder.get(p.id) || 0, pos = wh + sp + tr + oo;
-    const out = {p, cls, sup, lead, clr, L, review, safety, M, pos, wh, sp, tr, oo, D: 0, cover: Infinity, stockout: null, orderBy: null, arrival: null, gap: 0, qty: 0, lasts: 0, status: 'No demand', notes: []};
+    const out = {p, cls, sup, lead, clr, L, review, safety, M, pos, wh, sp, tr, oo, B: 0, D: 0, cover: Infinity, stockout: null, orderBy: null, arrival: null, gap: 0, qty: 0, lasts: 0, status: 'No demand', notes: []};
     const base = snap.rateProd.get(p.id) || 0, B = L + safety + (M ? 0 : review);   // days to cover: delivery + safety (+ one review cycle when ordering is possible any time)
+    out.B = B;
     let D = base * this.factor(snap, p, B);
     if (!(D > 0)) return out;
     const cover = pos / D, stockout = addDays(td, Math.floor(cover)), latest = addDays(stockout, -B);
@@ -2453,6 +2531,188 @@ async function renderExpiry(v) {
   $('#exRef').onclick = async () => { Hub.invalidate(); snap = await Hub.get(); expRaw = await expiryFetch(); recompute(); toast('Data refreshed.'); };
   Hub.onChange(s => { snap = s; recompute(); });
   push(); drawTabs(); recompute();
+}
+
+// ============================ TEST DATA (administrators only) ============================
+// Loads a complete, predictable set of numbers (1 to 22 November 2026) through the same screens' own database functions,
+// so every module can be checked by hand. Names of locations and products are never changed.
+const TD_START = '2026-11-01', TD_END = '2026-11-22', TD_DAYS = 22;
+const TD_SCN = ['Steady', 'Sales fall in the last 7 days', 'Sales jump in the last 4 days', 'Weekend peak (Fri/Sat)', 'Low stock, nothing on order', 'Slow mover', 'Fast mover, partly received PO', 'No sales (dead stock)'];
+const TD_SCN_HINT = [
+  'Forecast stays flat at the daily rate.', 'Forecast falls as the last 7 days weigh in; Responsive mode falls fastest.', 'Forecast rises sharply; stock-out risk appears because little stock is on order.',
+  'Friday and Saturday sales are 1.8 times higher.', 'Appears in Low Stock Alerts and as Stock-out risk (no PO).', 'Very small, uneven sales; long cover.', 'High sales; PO is only partly received, so the balance is still on order.', 'Stock exists but forecast demand is zero.'];
+
+function tdPlan(ctx) {
+  const {whs, sps, prods, supOf, costOf, today: td} = ctx, W0 = whs[0], W1 = whs[1] || null, W2 = whs[2] || null, day = d => addDays(TD_START, d);
+  const dow = ds => new Date(ds + 'T00:00:00Z').getUTCDay(), K = (l, p) => l + '|' + p;
+  const plan = {opening: [], sales: [], po: [], challans: [], docs: [], indents: [], batches: [], count: null, expect: new Map(), rows: [], salesTot: new Map()};
+  const exp = (l, p, q) => plan.expect.set(K(l, p), (plan.expect.get(K(l, p)) || 0) + q);
+  const ch = new Map();            // 'day|spIdx' -> challan
+  const addCh = (d, j, line) => { const k = d + '|' + j; if (!ch.has(k)) ch.set(k, {day: d, sp: sps[j], lines: []}); ch.get(k).lines.push(line); };
+  const poGroups = new Map();      // 'supplier|day|status' -> purchase order
+  const trf = {lines: []}, ret1 = {lines: []}, ret2 = {lines: []}, adjP = {lines: []}, adjM = {lines: []}, qc = {lines: []};
+  const sp0 = sps[0], sp1 = sps[1] || sps[0], last = sps.length - 1, bal = new Map();   // running balance of sales points
+  prods.forEach((p, i) => {
+    const scn = i % 8, b = sps.map((_, j) => 2 + ((i * 7 + j * 3) % 9));
+    const S = sps.map((_, j) => Array.from({length: TD_DAYS}, (_, d) => {
+      const ds = day(d), w = dow(ds);
+      switch (scn) { case 0: return b[j]; case 1: return d >= 15 ? Math.round(b[j] * 0.4) : b[j]; case 2: return d >= 18 ? b[j] * 3 : b[j]; case 3: return (w === 5 || w === 6) ? Math.round(b[j] * 1.8) : b[j];
+        case 4: return b[j]; case 5: return d % 2 === 0 ? (i + j) % 3 : 0; case 6: return b[j] * 3; default: return 0; } }));
+    const sumS = S.map(a => a.reduce((x, y) => x + y, 0)), avg = sumS.map(x => x / TD_DAYS), Dnet = Math.max(1, avg.reduce((x, y) => x + y, 0));
+    plan.rows.push({pid: p.id, name: p.name, scn: TD_SCN[scn], supplier: supOf(p).name, daily: +Dnet.toFixed(2), sales: sumS.reduce((x, y) => x + y, 0)});
+    // sales points: opening stock covers the whole month of sales plus a scenario-specific buffer
+    sps.forEach((sp, j) => {
+      const buf = scn === 4 ? Math.ceil(b[j] * 4) : scn === 6 ? Math.ceil(b[j] * 18) : scn === 7 ? Math.ceil(b[j] * 40) : scn === 5 ? Math.ceil(avg[j] * 20) + 5 : Math.ceil(b[j] * 20), O = sumS[j] + buf;
+      plan.opening.push({loc: sp.id, pid: p.id, qty: O}); bal.set(K(sp.id, p.id), O - sumS[j]); exp(sp.id, p.id, O - sumS[j]);
+      S[j].forEach((q, d) => { if (q > 0) plan.sales.push({loc: sp.id, pid: p.id, date: day(d), qty: q}); });
+      plan.salesTot.set(K(sp.id, p.id), sumS[j]);
+    });
+    // purchase scenario at the central warehouse
+    const mult = [30, 30, 12, 25, 8, 0, 15, 0][scn], open0 = scn === 5 ? Math.max(100, Math.ceil(Dnet * 90)) : scn === 7 ? 200 : Math.ceil(Dnet * mult);
+    let w0 = open0; plan.opening.push({loc: W0.id, pid: p.id, qty: w0});
+    const POS = [[2, 11, 20, 20], [2, 11, 10, 10], [19, null, 40, 0], [4, 13, 15, 15], null, [1, 4, Math.ceil(Dnet * 5) + 30, null], [2, 17, 40, 20], null][scn];
+    let rec = null;
+    if (POS) { const ord = scn === 5 ? POS[2] : Math.ceil(Dnet * POS[2]), got = scn === 5 ? ord : POS[3] === null ? 0 : Math.ceil(Dnet * POS[3]), status = got === 0 ? 'ordered' : got < ord ? 'partial' : 'received';
+      const exps = [5, 25, 80, 200][i % 4], key = `${supOf(p).id}|${POS[0]}|${status}`;
+      if (!poGroups.has(key)) poGroups.set(key, {sup: supOf(p), day: POS[0], status, lines: [], recv: []});
+      poGroups.get(key).lines.push({product_id: p.id, qty: ord, unit_cost: costOf(p, i)});
+      if (got > 0) { rec = {day: POS[1], qty: got}; poGroups.get(key).recv.push({product_id: p.id, qty: got, batch_no: `B${key.split('|')[1]}-${i + 1}`, expiry_date: scn === 5 ? '2026-11-21' : addDays(td, exps), rday: POS[1]}); } }
+    // other warehouses
+    const open1 = W1 ? (scn === 7 ? 50 : Math.ceil(Dnet * 10)) : 0, tq = W1 && i % 2 === 0 ? Math.max(1, Math.floor(open1 * 0.2)) : 0;
+    if (W1) { plan.opening.push({loc: W1.id, pid: p.id, qty: open1}); exp(W1.id, p.id, open1 - tq); if (tq) trf.lines.push({product_id: p.id, qty: tq}); }
+    if (W2 && i % 3 === 0) { const o2 = Math.ceil(Dnet * 5); plan.opening.push({loc: W2.id, pid: p.id, qty: o2}); exp(W2.id, p.id, o2); }
+    // day by day at the central warehouse
+    for (let d = 0; d < TD_DAYS; d++) {
+      if (rec && rec.day === d) w0 += rec.qty;
+      if (d === 15) w0 += tq;                                            // transfer from the second warehouse is received on 16 Nov
+      if (d === 17 && i < 2) { w0 += 3; ret1.lines.push({product_id: p.id, qty: 3, sp: true}); }   // return from the first sales point is received on 18 Nov
+      if (d === 17) { if (i < 3) { w0 += 5; adjP.lines.push({product_id: p.id, qty: 5}); } else if (i < 5 && w0 >= 3) { w0 -= 3; adjM.lines.push({product_id: p.id, qty: -3}); } }
+      if ((d === 8 || d === 15) && scn !== 4 && scn !== 7) sps.forEach((sp, j) => { const want = Math.ceil(avg[j] * 5), q = Math.min(want, Math.floor(w0)); if (q < 1) return; w0 -= q;
+        const short = d === 15 && j === 1 && !plan.shortDone; if (short && q >= 2) plan.shortDone = true; addCh(d, j, {product_id: p.id, qty: q, recv: short && q >= 2 ? q - 1 : q}); exp(sp.id, p.id, short && q >= 2 ? q - 1 : q); bal.set(K(sp.id, p.id), (bal.get(K(sp.id, p.id)) || 0) + q); });
+      if (d === 19 && i % 2 === 0 && scn !== 4 && scn !== 7) { const q = Math.min(Math.ceil(avg[last] * 3), Math.floor(w0)); if (q >= 1) { w0 -= q; addCh(d, last, {product_id: p.id, qty: q, recv: null}); } }
+      if (d === 20 && i === 2) ret2.lines.push({product_id: p.id, qty: 2, sp: true});   // second return stays in transit
+    }
+    if (ret1.lines.some(l => l.product_id === p.id) || ret2.lines.some(l => l.product_id === p.id)) { const q = (ret1.lines.find(l => l.product_id === p.id) || ret2.lines.find(l => l.product_id === p.id)).qty; exp(sp0.id, p.id, -q); }
+    if (i < 3) { exp(sp0.id, p.id, -2); qc.lines.push({product_id: p.id, qty: 2}); }
+    exp(W0.id, p.id, w0);
+    plan.indentLines = plan.indentLines || []; if (scn !== 7) plan.indentLines.push({pid: p.id, name: p.name, avg});
+  });
+  // purchase orders
+  const s0 = supOf(prods[0] || {}), small = prods.slice(0, 3);
+  poGroups.forEach(g => plan.po.push({sup: g.sup, wh: W0, day: g.day, status: g.status, lines: g.lines, receive: g.recv.length ? {day: Math.max(...g.recv.map(r => r.rday)), lines: g.recv.map(({rday, ...l}) => l)} : null}));
+  if (small.length) { plan.po.push({sup: s0, wh: W0, day: 20, status: 'draft', lines: small.map((p, i) => ({product_id: p.id, qty: 10 * (i + 1), unit_cost: costOf(p, i)})), receive: null});
+    plan.po.push({sup: s0, wh: W0, day: 14, status: 'cancelled', lines: small.slice(0, 2).map((p, i) => ({product_id: p.id, qty: 7, unit_cost: costOf(p, i)})), receive: null}); }
+  plan.po.sort((a, b) => a.day - b.day);
+  // challans, stock documents
+  plan.challans = [...ch.values()].sort((a, b) => a.day - b.day || a.sp.name.localeCompare(b.sp.name)).map(c => ({...c, from: W0, date: day(c.day), transit: c.lines.every(l => l.recv === null)}));
+  if (W1 && trf.lines.length) plan.docs.push({kind: 'transfer', type: 'transfer', from: W1, to: W0, date: day(14), reason: 'Rebalancing between warehouses', lines: trf.lines, receive: true});
+  if (ret1.lines.length) plan.docs.push({kind: 'return', type: 'return', from: sp0, to: W0, date: day(16), reason: 'Near expiry', lines: ret1.lines.map(({sp, ...l}) => l), receive: true});
+  if (ret2.lines.length) plan.docs.push({kind: 'return', type: 'return', from: sp0, to: W0, date: day(20), reason: 'Excess stock', lines: ret2.lines.map(({sp, ...l}) => l), receive: false});
+  if (adjP.lines.length) plan.docs.push({kind: 'adjust', type: 'adjustment', loc: W0, date: day(17), reason: 'Found extra stock', lines: adjP.lines});
+  if (adjM.lines.length) plan.docs.push({kind: 'adjust', type: 'adjustment', loc: W0, date: day(17), reason: 'Stock correction', lines: adjM.lines});
+  if (qc.lines.length) plan.docs.push({kind: 'adjust', type: 'damage', loc: sp0, date: day(18), reason: 'Damaged', lines: qc.lines});
+  // physical count at the second sales point: four products are one short
+  const cl = prods.filter((p, i) => i % 8 !== 7).slice(0, 4).filter(p => (plan.expect.get(K(sp1.id, p.id)) || 0) > 0);
+  if (cl.length) { plan.count = {loc: sp1, date: day(19), lines: cl.map(p => ({product_id: p.id, counted_qty: plan.expect.get(K(sp1.id, p.id)) - 1}))}; cl.forEach(p => exp(sp1.id, p.id, -1)); }
+  // indents: one per sales point on 6, 13 or 20 November
+  plan.indents = sps.slice(0, 6).map((sp, j) => ({sp, date: day([5, 12, 19][j % 3]), lines: (plan.indentLines || []).slice(0, 12).map(x => ({product_name: x.name, qty: Math.max(1, Math.ceil(x.avg[j] * 7))}))}));
+  // expiry batches at the first three sales points for the first twelve moving products
+  sps.slice(0, 3).forEach((sp, j) => prods.slice(0, 12).forEach((p, i) => { const fin = plan.expect.get(K(sp.id, p.id)) || 0; if (i % 8 === 7 || fin < 4) return;
+    let a = Math.floor(fin * 0.25), c = Math.floor(fin * 0.25), exQ = 0; if (j === 0 && i % 8 === 5) { exQ = Math.min(4, fin - a - c); } const m = fin - a - c - exQ;
+    [[addDays(td, 8), a], [addDays(td, 45), m], [addDays(td, 150), c], ['2026-11-20', exQ]].forEach(([e, q], k) => { if (q > 0) plan.batches.push({loc: sp.id, pid: p.id, batch: `${sp.name.slice(0, 3).toUpperCase()}-${i + 1}-${k + 1}`, expiry: e, qty: q}); }); }));
+  return plan;
+}
+
+async function tdRun(plan, ctx, log) {
+  const {td, sups} = ctx; let step = 0;
+  const run = async (title, fn) => { step++; log(`Step ${step}: ${title}…`); try { const r = await fn(); log(`   done${r ? ' — ' + r : ''}`); } catch (e) { log(`   FAILED: ${e.message || e}`, true); throw e; } };
+  const rpc = async (name, args) => { const r = await db.rpc(name, args); if (r.error) throw new Error(`${name}: ${r.error.message}`); return r.data; };
+  const insertRows = async (table, rows, size = 500) => { for (let i = 0; i < rows.length; i += size) { const r = await db.from(table).insert(rows.slice(i, i + size)); if (r.error) throw new Error(`${table}: ${r.error.message}`); } };
+  await run(`Opening stock (${fmt(plan.opening.length)} rows dated 2026-11-01)`, async () => { await insertRows('stock_ledger', plan.opening.map(o => ({location_id: o.loc, product_id: o.pid, entry_date: TD_START, entry_type: 'opening', qty: o.qty}))); });
+  await run(`Daily sales (${fmt(plan.sales.length)} rows, 1 to 22 November)`, async () => { for (let i = 0; i < plan.sales.length; i += 500) { const r = await db.from('daily_sales').upsert(plan.sales.slice(i, i + 500).map(s => ({location_id: s.loc, product_id: s.pid, sale_date: s.date, qty: s.qty})), {onConflict: 'location_id,product_id,sale_date'}); if (r.error) throw new Error(`daily_sales: ${r.error.message}`); } });
+  await run(`Purchase orders (${plan.po.length})`, async () => {
+    for (const po of plan.po) {
+      const date = addDays(TD_START, po.day), no = await rpc('create_po', {p_supplier: po.sup.id, p_warehouse: po.wh.id, p_date: date, p_expected: addDays(date, po.sup.lead_time_days || 14), p_note: 'Test data', p_lines: po.lines});
+      if (po.status === 'draft') continue;
+      const q = await db.from('purchase_orders').select('id').eq('po_no', no).single(); if (q.error) throw new Error(`purchase_orders: ${q.error.message}`);
+      await rpc('po_set_status', {p_po: q.data.id, p_action: 'order'});
+      if (po.status === 'cancelled') { await rpc('po_set_status', {p_po: q.data.id, p_action: 'cancel'}); continue; }
+      if (po.receive) await rpc('receive_po', {p_po: q.data.id, p_date: addDays(TD_START, po.receive.day), p_ref: `INV-${no}`, p_note: 'Test data', p_lines: po.receive.lines});
+    } return `${plan.po.length} created`; });
+  await run(`Challans (${plan.challans.length})`, async () => {
+    for (const c of plan.challans) {
+      await rpc('create_challan', {p_from: c.from.id, p_to: c.sp.id, p_date: c.date, p_note: 'Test data', p_lines: c.lines.map(l => ({product_id: l.product_id, qty: l.qty}))});
+    }
+    const q = await db.from('challans').select('id,to_location_id,challan_date,status').eq('status', 'dispatched').limit(2000); if (q.error) throw new Error(`challans: ${q.error.message}`);
+    for (const c of plan.challans) { if (c.transit) continue; const row = q.data.find(r => r.to_location_id === c.sp.id && r.challan_date === c.date); if (!row) throw new Error(`Challan for ${c.sp.name} on ${c.date} was not found.`);
+      await rpc('receive_challan', {p_challan: row.id, p_lines: c.lines.map(l => ({product_id: l.product_id, qty: l.recv ?? l.qty})), p_note: 'Test data'}); }
+    return `${plan.challans.filter(c => c.transit).length} left in transit`; });
+  await run(`Transfer, returns, adjustments and QC fail (${plan.docs.length} documents)`, async () => {
+    for (const d of plan.docs) {
+      if (d.kind === 'adjust') { await rpc('post_stock_adjustment', {p_type: d.type, p_location: d.loc.id, p_date: d.date, p_reason: d.reason, p_note: 'Test data', p_lines: d.lines}); continue; }
+      const no = await rpc('create_stock_transfer', {p_type: d.type, p_from: d.from.id, p_to: d.to.id, p_date: d.date, p_reason: d.reason, p_note: 'Test data', p_lines: d.lines});
+      if (!d.receive) continue; const q = await db.from('stock_docs').select('id').eq('doc_no', no).single(); if (q.error) throw new Error(`stock_docs: ${q.error.message}`);
+      await rpc('receive_stock_doc', {p_doc: q.data.id, p_lines: d.lines, p_note: 'Test data'});
+    } });
+  await run(`Indents (${plan.indents.length})`, async () => { for (const x of plan.indents) { if (!x.lines.length) continue; await rpc('create_indent', {p_location_id: x.sp.id, p_indent_date: x.date, p_odoo_ref: 'TEST', p_lines: x.lines}); } });
+  if (plan.count) await run('Physical count at ' + plan.count.loc.name, async () => { await rpc('post_stock_count', {p_location: plan.count.loc.id, p_date: plan.count.date, p_note: 'Test data', p_lines: plan.count.lines}); });
+  if (ctx.batches) await run(`Expiry register (${plan.batches.length} batches)`, async () => { await insertRows('stock_batches', plan.batches.map(b => ({location_id: b.loc, product_id: b.pid, batch_no: b.batch, expiry_date: b.expiry, qty: b.qty, note: 'Test data', created_by: session.role}))); });
+  if (ctx.settings) await run('Sample import settings on test products', async () => { let n = 0; const list = ctx.prods;
+    for (let i = 0; i < list.length; i++) { const months = [null, [10, 11, 12, 1, 2], [3, 4, 5], [9, 10, 11]][i % 4], r = await db.from('products').update({is_import: i % 10 !== 9, order_months: months, clearance_days: [7, 10, 14, 12][i % 4], shelf_life_days: i % 2 ? 180 : 365}).eq('id', list[i].id);
+      if (r.error) throw new Error(`products: ${r.error.message}`); n++; } return `${n} products`; });
+  Hub.invalidate();
+}
+
+async function renderTestData(v) {
+  const sps = locations.filter(l => l.type === 'sales_point').sort((a, b) => a.name.localeCompare(b.name)), whs = locations.filter(l => l.type === 'warehouse').sort((a, b) => (/central/i.test(b.name) ? 1 : 0) - (/central/i.test(a.name) ? 1 : 0) || a.name.localeCompare(b.name));
+  const td = today(), act = products.filter(p => p.is_active), st = {n: Math.min(30, act.length), settings: true, batches: true};
+  v.innerHTML = `<div class="card"><h2>Test Data</h2>
+    <p class="sub">Loads a complete set of predictable numbers, dated <b>1 to 22 November 2026</b>, so you can check every module by hand: opening stock, daily sales, purchase orders and receipts, challans, transfers, returns, adjustments, QC fail, a physical count, indents, expiry batches and the forecast.
+      <b>Location, warehouse, sales point and product names are never changed.</b> Everything is entered through the same database functions the screens use, so stock stays consistent. At the end the page compares Live Stock with the figures it expected.</p>
+    <div class="note warn"><b>Before loading:</b> the old opening, sales and purchase data must be cleared first. Run <b>uol_step8_reset_test_data.sql</b> in the Supabase SQL Editor (it keeps a backup copy of everything it clears). This page refuses to load while old data is present.</div>
+    <div class="row"><div><label>Products to include</label><select id="tdN">${[10, 20, 30, 50, 80].filter(n => n < act.length).map(n => `<option value="${n}">${n} products</option>`).join('')}<option value="${act.length}">All ${act.length} active products</option></select></div>
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="tdSet" checked> Set sample import settings (order months, clearance, shelf life)</label>
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="tdBat" checked> Add sample expiry batches</label></div></div>
+    <div id="tdCheck"></div><div id="tdPlan"></div><div id="tdLog"></div>`;
+  $('#tdN').value = String(st.n);
+  const supOf = p => { const s = (p.supplier && ctx().sups.find(x => norm(x.name) === norm(p.supplier))) || ctx().sups[0]; return s; };
+  let cache = null; const ctx = () => cache;
+  const sup = await db.from('suppliers').select('*'); if (sup.error) throw sup.error; cache = {sups: sup.data};
+  if (!sup.data.length) { $('#tdCheck').innerHTML = '<div class="card"><div class="note err">Add at least one supplier in Master Data first. Purchase orders need a supplier.</div></div>'; return; }
+  if (whs.length < 1 || sps.length < 1) { $('#tdCheck').innerHTML = '<div class="card"><div class="note err">At least one warehouse and one sales point are needed.</div></div>'; return; }
+  const counts = async () => { const out = {}; for (const t of ['daily_sales', 'stock_ledger', 'purchase_orders', 'challans', 'stock_docs', 'indents']) { const r = await db.from(t).select('id', {count: 'exact', head: true}); out[t] = r.error ? null : (r.count ?? 0); } return out; };
+  const build = () => { const n = +$('#tdN').value, prods = act.slice(0, n), costOf = (p, i) => Number(p.mrp) > 0 ? Math.round(Number(p.mrp) * 0.62) : 100 + 10 * i; return {plan: tdPlan({whs, sps, prods, supOf, costOf, today: td}), prods}; };
+  const draw = async () => {
+    const c = await counts(), dirty = Object.entries(c).filter(([, n]) => n > 0), unknown = Object.entries(c).filter(([, n]) => n === null);
+    $('#tdCheck').innerHTML = `<div class="card"><h3>Current data in the database</h3><div class="grid">${Object.entries(c).map(([t, n]) => `<div class="tile"><small>${t}</small><b>${n === null ? '?' : fmt(n)}</b></div>`).join('')}</div>
+      ${dirty.length ? `<div class="note err" style="margin-top:12px">Old data found. Run uol_step8_reset_test_data.sql first, then reload this page.</div>` : unknown.length ? `<div class="note warn" style="margin-top:12px">Some tables could not be counted: ${unknown.map(([t]) => t).join(', ')}.</div>` : `<div class="note ok" style="margin-top:12px">The database is empty of transactions. Ready to load.</div>`}</div>`;
+    const {plan, prods} = build(), tot = (a, f) => a.reduce((x, y) => x + f(y), 0);
+    cache.built = {plan, prods}; cache.ready = !dirty.length && !unknown.length;
+    $('#tdPlan').innerHTML = `<div class="card"><h3>What will be loaded</h3><div class="grid">
+      <div class="tile"><small>Opening stock rows (1 Nov)</small><b>${fmt(plan.opening.length)}</b><small>${fmt(tot(plan.opening, o => o.qty))} units</small></div><div class="tile"><small>Daily sales rows</small><b>${fmt(plan.sales.length)}</b><small>${fmt(tot(plan.sales, s => s.qty))} units, 1–22 Nov</small></div>
+      <div class="tile"><small>Purchase orders</small><b>${plan.po.length}</b><small>received, partial, ordered, draft, cancelled</small></div><div class="tile"><small>Challans</small><b>${plan.challans.length}</b><small>one left in transit, one received short</small></div>
+      <div class="tile"><small>Stock documents</small><b>${plan.docs.length}</b><small>transfer, returns, adjustments, QC fail</small></div><div class="tile"><small>Indents</small><b>${plan.indents.length}</b><small>6, 13 and 20 Nov</small></div></div>
+      <h3 style="margin-top:16px">Forecast scenarios by product</h3><p class="sub">Each product follows one pattern, so you know what the forecast should do. “Daily” is the total sales per day over all sales points for 1–22 Nov.</p>
+      <div class="tablewrap" style="max-height:360px"><table><thead><tr><th>Product</th><th>Scenario</th><th class="n">Daily (all sales points)</th><th class="n">Sales 1–22 Nov</th><th>What to expect</th></tr></thead><tbody>${plan.rows.map((r, i) => `<tr><td>${esc(r.name)}</td><td>${esc(r.scenario || r.scn)}</td><td class="n">${fmt(r.daily)}</td><td class="n">${fmt(r.sales)}</td><td style="font-size:12.5px">${esc(TD_SCN_HINT[TD_SCN.indexOf(r.scn)])}</td></tr>`).join('')}</tbody></table></div>
+      <div class="row" style="margin-top:14px"><button class="btn alt" id="tdXs">Download expected stock (Excel)</button><button class="btn alt" id="tdXq">Download sales totals (Excel)</button><button class="btn" id="tdGo" ${cache.ready ? '' : 'disabled'}>Load test data</button></div></div>`;
+    $('#tdXs').onclick = () => downloadSheet('Test_Expected_Live_Stock.xlsx', [['Location', 'Product', 'Expected live stock']].concat([...plan.expect.entries()].map(([k, q]) => { const [l, p] = k.split('|'); return [locName(l), prodName(p), q]; }).sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]))));
+    $('#tdXq').onclick = () => downloadSheet('Test_Sales_Totals.xlsx', [['Sales point', 'Product', 'Sales 1-22 Nov']].concat([...plan.salesTot.entries()].map(([k, q]) => { const [l, p] = k.split('|'); return [locName(l), prodName(p), q]; }).sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]))));
+    $('#tdGo').onclick = load;
+  };
+  const load = async () => {
+    if (td < TD_END) return toast(`Today must be ${TD_END} or later; it is ${td}.`, 'err');
+    if (!confirm('Load the test data now? Old transactions must already have been cleared with the reset SQL.')) return;
+    const {plan, prods} = cache.built, lg = $('#tdLog'); $('#tdGo').disabled = true; lg.innerHTML = '<div class="card"><h3>Progress</h3><pre id="tdPre" style="white-space:pre-wrap;font-size:12.5px;margin:0"></pre><div id="tdRes"></div></div>';
+    const log = (m, bad) => { const p = $('#tdPre'); p.innerHTML += (bad ? '<span style="color:#b91c1c">' : '') + esc(m) + (bad ? '</span>' : '') + '\n'; };
+    try {
+      await tdRun(plan, {td, sups: cache.sups, prods, settings: $('#tdSet').checked, batches: $('#tdBat').checked}, log);
+      log('Checking Live Stock against the expected figures…'); Hub.invalidate(); const snap = await Hub.get(0), live = new Map(snap.ls.map(r => [r.location_id + '|' + r.product_id, Number(r.live_qty)])), bad = [];
+      plan.expect.forEach((q, k) => { const got = live.get(k) || 0; if (Math.abs(got - q) > 1e-6) bad.push([k, q, got]); }); live.forEach((q, k) => { if (!plan.expect.has(k) && q !== 0) bad.push([k, 0, q]); });
+      $('#tdRes').innerHTML = bad.length ? `<div class="note err" style="margin-top:12px"><b>${bad.length} stock figure(s) differ from the expected numbers.</b> This usually means the database dates or posts a movement differently than assumed. First rows:<br>${bad.slice(0, 15).map(([k, e, g]) => `${esc(locName(k.split('|')[0]))} · ${esc(prodName(k.split('|')[1]))}: expected ${e}, found ${g}`).join('<br>')}</div>`
+        : `<div class="note ok" style="margin-top:12px"><b>All ${plan.expect.size} stock figures match.</b> The test data is loaded. Open any module and compare it with the downloaded expected sheets.</div>`;
+    } catch (e) { $('#tdRes').innerHTML = `<div class="note err" style="margin-top:12px">Loading stopped: ${esc(e.message || e)}. Nothing after this step was loaded. Run uol_step8_reset_test_data.sql to clear what was loaded, fix the cause, and try again.</div>`; }
+  };
+  $('#tdN').onchange = draw; await draw();
 }
 
 // ============================ AUDIT TRAIL ============================
